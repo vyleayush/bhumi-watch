@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildSync } from 'esbuild';
@@ -36,11 +36,35 @@ const apiFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', '-z', comm
   cwd: root,
   encoding: 'utf8',
 }).split('\0');
+const hormuzRoute = '/api/supply-chain/hormuz-tracker';
+const sharedHormuzRoute = '/api/supply-chain/v1/hormuz-tracker';
+renameSync(join(stage, 'api/supply-chain/hormuz-tracker.js'), join(stage, 'api/supply-chain/_hormuz-tracker.js'));
+
 for (const file of apiFiles) {
   const isEntrypoint = /\.(?:[cm]?[jt]s|tsx)$/.test(file)
     && !file.split('/').some(part => part.startsWith('_'));
-  if (isEntrypoint && !dashboardEndpoints.has(file)) rmSync(join(stage, file));
+  if (isEntrypoint && !dashboardEndpoints.has(file) && file !== 'api/supply-chain/hormuz-tracker.js') rmSync(join(stage, file));
 }
+
+// Share the supply-chain Edge function with the legacy Hormuz route.
+const supplyChainPath = join(stage, 'api/supply-chain/v1/[rpc].ts');
+renameSync(supplyChainPath, join(stage, 'api/supply-chain/v1/_domain-handler.ts'));
+writeFileSync(supplyChainPath, [
+  "import supplyChain from './_domain-handler';",
+  "// @ts-ignore -- legacy Edge handler is JavaScript",
+  "import hormuz from '../_hormuz-tracker.js';",
+  '',
+  "export const config = { runtime: 'edge' };",
+  '',
+  'export default function handler(request: Request) {',
+  '  const path = new URL(request.url).pathname;',
+  `  if (path === '${hormuzRoute}' || path === '${sharedHormuzRoute}') {`,
+  '    return hormuz(request);',
+  '  }',
+  '  return supplyChain(request);',
+  '}',
+  '',
+].join('\n'));
 
 // Prevent the cloud install from recomputing the inventory against the reduced route set.
 const packagePath = join(stage, 'package.json');
@@ -69,6 +93,7 @@ writeFileSync(middlewarePath,
 
 const vercelPath = join(stage, 'vercel.json');
 const vercel = JSON.parse(readFileSync(vercelPath, 'utf8'));
+vercel.rewrites.unshift({ source: hormuzRoute, destination: sharedHormuzRoute });
 vercel.buildCommand = 'VITE_BHUMI_WATCH=1 npx vite build';
 writeFileSync(vercelPath, JSON.stringify(vercel, null, 2) + '\n');
 
