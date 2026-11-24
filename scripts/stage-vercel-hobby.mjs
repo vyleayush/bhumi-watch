@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildSync } from 'esbuild';
+import { energyRefreshLanes } from './bhumi-energy-refresh.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const stage = mkdtempSync(join(tmpdir(), 'worldmonitor-vercel-hobby-'));
@@ -66,6 +67,43 @@ writeFileSync(supplyChainPath, [
   '',
 ].join('\n'));
 
+// Reuse the version function slot for the authenticated daily energy refresh.
+const versionPath = join(stage, 'api/version.js');
+renameSync(versionPath, join(stage, 'api/_version.js'));
+copyFileSync(join(stage, 'scripts/bhumi-energy-refresh.mjs'), join(stage, 'api/_bhumi-energy-refresh.mjs'));
+writeFileSync(versionPath, [
+  "import version from './_version.js';",
+  "import { refreshEnergy } from './_bhumi-energy-refresh.mjs';",
+  '',
+  'export function GET(request) {',
+  "  return new URL(request.url).searchParams.get('task') === 'energy-refresh'",
+  '    ? refreshEnergy(request)',
+  '    : version();',
+  '}',
+  '',
+].join('\n'));
+
+const seedsDir = join(stage, 'energy-seeds');
+buildSync({
+  absWorkingDir: root,
+  entryPoints: energyRefreshLanes.flat().map(([name]) => 'scripts/' + name + '.mjs'),
+  outdir: seedsDir,
+  outExtension: { '.js': '.mjs' },
+  bundle: true,
+  platform: 'node',
+  target: 'node24',
+  format: 'esm',
+  banner: { js: "import { createRequire as createSeedRequire } from 'node:module'; const require = createSeedRequire(import.meta.url);" },
+});
+copyFileSync(join(stage, 'scripts/_proxy-utils.cjs'), join(seedsDir, '_proxy-utils.cjs'));
+mkdirSync(join(seedsDir, 'data'));
+for (const asset of [
+  'pipelines-gas.json', 'pipelines-oil.json', 'storage-facilities.json',
+  'fuel-shortages.json', 'energy-disruptions.json', 'energy-crisis-policies.json', 'spr-policies.json',
+]) {
+  copyFileSync(join(stage, 'scripts/data', asset), join(seedsDir, 'data', asset));
+}
+
 // Prevent the cloud install from recomputing the inventory against the reduced route set.
 const packagePath = join(stage, 'package.json');
 const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
@@ -94,6 +132,15 @@ writeFileSync(middlewarePath,
 const vercelPath = join(stage, 'vercel.json');
 const vercel = JSON.parse(readFileSync(vercelPath, 'utf8'));
 vercel.rewrites.unshift({ source: hormuzRoute, destination: sharedHormuzRoute });
+vercel.fluid = true;
+vercel.functions = {
+  ...vercel.functions,
+  'api/version.js': {
+    maxDuration: 300,
+    includeFiles: '{energy-seeds/**,shared/commodities.json}',
+  },
+};
+vercel.crons.push({ path: '/api/version?task=energy-refresh', schedule: '0 2 * * *' });
 vercel.buildCommand = 'VITE_BHUMI_WATCH=1 npx vite build';
 writeFileSync(vercelPath, JSON.stringify(vercel, null, 2) + '\n');
 
