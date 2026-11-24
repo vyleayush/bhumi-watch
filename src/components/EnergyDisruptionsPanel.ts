@@ -258,7 +258,7 @@ export class EnergyDisruptionsPanel extends Panel {
       <div class="ed-wrap">
         <div class="ed-summary">${escapeHtml(summary)}</div>
         <div class="ed-filters">
-          ${import.meta.env.VITE_BHUMI_WATCH === '1' ? `<details class="ed-filter-menu">
+          ${import.meta.env?.VITE_BHUMI_WATCH === '1' ? `<details class="ed-filter-menu">
             <summary>${escapeHtml(EVENT_TYPE_FILTERS.find(filter => filter.key === this.activeTypeFilter)?.label ?? 'All events')}</summary>
             <div class="ed-filter-options">${typeButtons}</div>
           </details>` : typeButtons}${ongoingBtn}

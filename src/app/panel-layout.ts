@@ -1293,7 +1293,7 @@ export class PanelLayoutManager implements AppModule {
     document.documentElement.classList.add('wm-layout-hydrated');
     setTrustedHtml(this.ctx.container, trustedHtml(`
       <a href="#main" class="skip-link">Skip to main content</a>
-      ${import.meta.env.VITE_BHUMI_WATCH === '1' || isBhumiWatchHost(location.hostname) ? '' : '<div id="proBannerSlot" class="pro-banner-slot" aria-live="polite"></div>'}
+      ${import.meta.env?.VITE_BHUMI_WATCH === '1' || isBhumiWatchHost(location.hostname) ? '' : '<div id="proBannerSlot" class="pro-banner-slot" aria-live="polite"></div>'}
       <div class="header" role="banner">
         <div class="header-left">
           <div class="brand-lockup">
@@ -4043,7 +4043,7 @@ export class PanelLayoutManager implements AppModule {
     } else {
       allOrder = [...defaultOrder];
 
-      const prioritizeEnergy = SITE_VARIANT === 'energy' && import.meta.env.VITE_BHUMI_WATCH === '1';
+      const prioritizeEnergy = SITE_VARIANT === 'energy' && import.meta.env?.VITE_BHUMI_WATCH === '1';
       if (SITE_VARIANT !== 'happy' && !prioritizeEnergy) {
         const liveNewsIdx = allOrder.indexOf('live-news');
         if (liveNewsIdx > 0) {
