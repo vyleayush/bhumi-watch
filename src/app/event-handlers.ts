@@ -1005,6 +1005,7 @@ export class EventHandlerManager implements AppModule {
     this.renderMissionPresetControl();
 
     const shouldPrompt =
+      import.meta.env.VITE_BHUMI_WATCH !== '1' &&
       !this.ctx.isMobile &&
       !window.location.search &&
       !loadStoredMissionPreset() &&

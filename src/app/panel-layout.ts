@@ -4043,7 +4043,8 @@ export class PanelLayoutManager implements AppModule {
     } else {
       allOrder = [...defaultOrder];
 
-      if (SITE_VARIANT !== 'happy') {
+      const prioritizeEnergy = SITE_VARIANT === 'energy' && import.meta.env.VITE_BHUMI_WATCH === '1';
+      if (SITE_VARIANT !== 'happy' && !prioritizeEnergy) {
         const liveNewsIdx = allOrder.indexOf('live-news');
         if (liveNewsIdx > 0) {
           allOrder.splice(liveNewsIdx, 1);
