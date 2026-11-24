@@ -1,0 +1,567 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { AppContext } from '@/app/app-context';
+import type { CountryBriefSignals, NewsItem } from '@/types';
+import * as auth from '@/services/auth-state';
+import * as panelGating from '@/services/panel-gating';
+import * as entitlements from '@/services/entitlements';
+
+const coverageMocks = vi.hoisted(() => ({
+  fetchCountryCoverage: vi.fn(),
+  createPanel: vi.fn(),
+  premiumFetch: vi.fn(),
+  activeFramework: vi.fn(),
+  summarize: vi.fn(),
+  localSummaryAvailable: false,
+}));
+
+vi.mock('@/services/ml-worker', () => ({
+  mlWorker: {
+    get isAvailable() { return coverageMocks.localSummaryAvailable; },
+    isModelLoaded: (model: string) => coverageMocks.localSummaryAvailable && model.startsWith('summarization'),
+    summarize: (...args: unknown[]) => coverageMocks.summarize(...args),
+  },
+}));
+
+vi.mock('@/services/premium-fetch', () => ({
+  premiumFetch: (...args: unknown[]) => coverageMocks.premiumFetch(...args),
+}));
+
+vi.mock('@/components/CountryDeepDivePanel', () => ({
+  CountryDeepDivePanel: function CountryDeepDivePanel() {
+    return coverageMocks.createPanel();
+  },
+}));
+
+vi.mock('@/services/country-coverage', () => ({
+  fetchCountryCoverage: (...args: unknown[]) => coverageMocks.fetchCountryCoverage(...args),
+}));
+
+vi.mock('@/utils/after-paint', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/utils/after-paint')>(),
+  yieldToMain: async () => {},
+}));
+
+vi.mock('@/app/lazy-services', () => ({
+  getSignalAggregator: async () => ({
+    getCountryClusters: () => [],
+    getRegionalConvergence: () => [],
+  }),
+}));
+
+vi.mock('@/services/imf-country-data', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/imf-country-data')>(),
+  getImfCountryBundle: async () => ({
+    macro: null,
+    growth: null,
+    labor: null,
+    external: null,
+    fetchedAt: 0,
+  }),
+}));
+
+vi.mock('@/services/prediction', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/prediction')>(),
+  fetchCountryMarkets: async () => [],
+}));
+
+vi.mock('@/services/supply-chain', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/supply-chain')>(),
+  fetchMultiSectorExposure: async () => [],
+  fetchCountryProducts: async () => [],
+  fetchMultiSectorCostShock: async () => null,
+  fetchCountryVulnerabilities: async () => null,
+}));
+
+vi.mock('@/services/panel-gating', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/panel-gating')>(),
+  hasPremiumAccess: () => false,
+}));
+
+vi.mock('@/services/analysis-framework-store', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/analysis-framework-store')>(),
+  subscribeFrameworkChange: () => () => {},
+  getActiveFrameworkForPanel: () => coverageMocks.activeFramework(),
+}));
+
+vi.mock('@/services/country-geometry', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/country-geometry')>(),
+  preloadCountryGeometry: async () => {},
+  getCountryCentroid: () => null,
+}));
+
+vi.mock('@/services/related-assets', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/related-assets')>(),
+  preloadInfrastructureTables: async () => {},
+  getNearbyInfrastructure: () => [],
+}));
+
+vi.mock('@/services/military-base-config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/services/military-base-config')>(),
+  preloadMilitaryBases: async () => [],
+  getCachedMilitaryBases: () => [],
+}));
+
+import { CountryIntelManager } from '@/app/country-intel';
+
+const EMPTY_SIGNALS: CountryBriefSignals = {
+  criticalNews: 0,
+  protests: 0,
+  militaryFlights: 0,
+  militaryVessels: 0,
+  militaryFlightsInCountry: 0,
+  militaryVesselsInCountry: 0,
+  outages: 0,
+  aisDisruptions: 0,
+  satelliteFires: 0,
+  radiationAnomalies: 0,
+  temporalAnomalies: 0,
+  cyberThreats: 0,
+  earthquakes: 0,
+  displacementOutflow: 0,
+  climateStress: 0,
+  conflictEvents: 0,
+  activeStrikes: 0,
+  orefSirens: 0,
+  orefHistory24h: 0,
+  aviationDisruptions: 0,
+  travelAdvisories: 0,
+  travelAdvisoryMaxLevel: null,
+  gpsJammingHexes: 0,
+  isTier1: false,
+  thermalEscalations: 0,
+  sanctionsDesignations: 0,
+  sanctionsNewDesignations: 0,
+};
+
+function newsItem(title: string): NewsItem {
+  return {
+    source: 'Test wire',
+    title,
+    link: `https://example.com/${encodeURIComponent(title)}`,
+    pubDate: new Date('2026-09-01T12:00:00Z'),
+    isAlert: false,
+  };
+}
+
+function createBriefHarness(eagerNews: NewsItem[], options: { realBriefFetch?: boolean } = {}) {
+  let visible = false;
+  let activeCode = '';
+  let close = () => {};
+  const newsUpdates: NewsItem[][] = [];
+  const briefUpdates: Array<Record<string, unknown>> = [];
+  const page = {
+    onClose: (callback: () => void) => { close = callback; },
+    getCode: () => activeCode,
+    getName: () => 'United States',
+    isVisible: () => visible,
+    hide: () => {
+      visible = false;
+      activeCode = '';
+    },
+    show: (_country: string, nextCode: string) => {
+      visible = true;
+      activeCode = nextCode;
+    },
+    showLoading: () => {
+      visible = true;
+      activeCode = '__loading__';
+    },
+    updateInfrastructure: () => {},
+    updateNews: (headlines: NewsItem[]) => {
+      newsUpdates.push(headlines);
+    },
+    updateMilitaryActivity: () => {},
+    updateEconomicIndicators: () => {},
+    updateStock: () => {},
+    updateMarkets: () => {},
+    updateBrief: (data: Record<string, unknown>) => {
+      briefUpdates.push(data);
+    },
+    getTimelineMount: () => undefined,
+  };
+  const ctx = {
+    countryBriefPage: page,
+    isDestroyed: false,
+    allNews: eagerNews,
+    latestClusters: [],
+    intelligenceCache: {},
+    map: {
+      clearCountryHighlight: () => {},
+      setRenderPaused: () => {},
+      highlightCountry: () => {},
+      fitCountry: () => {},
+    },
+  } as unknown as AppContext;
+  const manager = new CountryIntelManager(ctx);
+  coverageMocks.createPanel.mockReturnValue(page);
+  Reflect.set(manager, 'ensureCountryBriefPage', async () => true);
+  Reflect.set(manager, 'getCountrySignals', async () => EMPTY_SIGNALS);
+  Reflect.set(manager, 'buildSignalDetails', async () => ({
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    recentHigh: [],
+  }));
+  if (!options.realBriefFetch) {
+    Reflect.set(manager, 'fetchCountryIntelBrief', async () => ({ brief: '', sources: [] }));
+  }
+  Reflect.set(manager, 'fetchDefenseIndustrialBase', () => {});
+  Reflect.set(manager, 'fetchProSections', () => {});
+  Reflect.set(manager, 'fetchCommodityVulnerability', () => {});
+  Reflect.set(manager, 'mountCountryTimeline', () => {});
+  return {
+    manager,
+    newsUpdates,
+    briefUpdates,
+    bindClose: () => Reflect.get(manager, 'createCountryBriefPage').call(manager),
+    close: () => { page.hide(); close(); },
+    open: () => manager.openCountryBriefByCode('US', 'United States', { trackAnalytics: false }),
+  };
+}
+
+describe('CountryIntelManager lazy coverage headlines', () => {
+  beforeEach(() => {
+    coverageMocks.fetchCountryCoverage.mockReset();
+    coverageMocks.premiumFetch.mockReset();
+    coverageMocks.premiumFetch.mockRejectedValue(new Error('offline'));
+    coverageMocks.activeFramework.mockReset().mockReturnValue(null);
+    coverageMocks.localSummaryAvailable = false;
+    coverageMocks.summarize.mockReset();
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+  });
+
+  it.each(['human', 'agent'] as const)('rechecks an open AI brief owned by %s without changing ownership', async (owner) => {
+    let session: auth.AuthSession = { user: null, isPending: false };
+    let notify = () => {};
+    const authState = vi.spyOn(auth, 'getAuthState').mockImplementation(() => session);
+    const premiumAccess = vi.spyOn(panelGating, 'hasPremiumAccess').mockImplementation(() => session.user?.role === 'pro');
+    const authSubscription = vi.spyOn(auth, 'subscribeAuthState').mockImplementation(callback => {
+      notify = () => callback(session);
+      return () => {};
+    });
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    coverageMocks.premiumFetch.mockImplementation(async (url: string) => {
+      if (!url.includes('get-country-intel-brief')) throw new Error('offline');
+      if (session.user?.role === 'pro') return Response.json({ brief: 'AI assessment for this account.' });
+      return Response.json({ error: session.user ? 'Upgrade required' : 'Authentication required' }, { status: session.user ? 403 : 401 });
+    });
+    const { manager, briefUpdates } = createBriefHarness([], { realBriefFetch: true });
+    Reflect.set(manager, 'setupCountryIntel', async () => {});
+    try {
+      await manager.init();
+      await manager.openCountryBriefByCode('US', 'United States', { owner, trackAnalytics: false });
+      expect(briefUpdates.some(update => update.accessNotice === 'sign-in')).toBe(true);
+
+      session = { user: { id: 'fixture-user', name: 'Test Account', email: 'test@example.test', role: 'free' }, isPending: false };
+      notify();
+      await vi.waitFor(() => expect(briefUpdates[briefUpdates.length - 1]?.accessNotice).toBe('pro'));
+
+      session = { user: { ...session.user!, role: 'pro' }, isPending: false };
+      notify();
+      await vi.waitFor(() => expect(briefUpdates[briefUpdates.length - 1]).toMatchObject({ brief: 'AI assessment for this account.' }));
+      expect(briefUpdates[briefUpdates.length - 1]?.accessNotice).toBeUndefined();
+
+      await manager.openCountryBriefByCode('CA', 'Canada', { owner: 'agent', trackAnalytics: false });
+      expect(briefUpdates[briefUpdates.length - 1]?.code).toBe(owner === 'agent' ? 'CA' : 'US');
+    } finally {
+      manager.destroy();
+      authState.mockRestore();
+      authSubscription.mockRestore();
+      premiumAccess.mockRestore();
+    }
+  });
+
+  it.each(['role', 'tier'] as const)('rechecks an upgrade when the account %s changes under a local premium override', async (change) => {
+    let session: auth.AuthSession = {
+      user: { id: 'fixture-user', name: 'Test Account', email: 'test@example.test', role: 'free' },
+      isPending: false,
+    };
+    let tier = 0;
+    let notifyAuth = () => {};
+    let notifyEntitlement = () => {};
+    const authState = vi.spyOn(auth, 'getAuthState').mockImplementation(() => session);
+    const premiumAccess = vi.spyOn(panelGating, 'hasPremiumAccess').mockReturnValue(true);
+    const belief = vi.spyOn(panelGating, 'readClientEntitlementBelief').mockImplementation(() => ({
+      authRole: session.user?.role ?? null,
+      entitlementTier: tier,
+    }));
+    const authSubscription = vi.spyOn(auth, 'subscribeAuthState').mockImplementation(callback => {
+      notifyAuth = () => callback(session);
+      return () => {};
+    });
+    const entitlementSubscription = vi.spyOn(entitlements, 'onEntitlementChange').mockImplementation(callback => {
+      notifyEntitlement = () => callback(entitlements.getEntitlementState());
+      return () => {};
+    });
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    coverageMocks.premiumFetch.mockImplementation(async (url: string) => {
+      if (!url.includes('get-country-intel-brief')) throw new Error('offline');
+      if (tier > 0 || session.user?.role === 'pro') return Response.json({ brief: 'Assessment after upgrade.' });
+      return Response.json({ error: 'Upgrade required' }, { status: 403 });
+    });
+    const { manager, open, briefUpdates } = createBriefHarness([], { realBriefFetch: true });
+    Reflect.set(manager, 'setupCountryIntel', async () => {});
+    try {
+      await manager.init();
+      await open();
+      expect(briefUpdates[briefUpdates.length - 1]?.accessNotice).toBe('pro');
+
+      if (change === 'tier') {
+        tier = 1;
+        notifyEntitlement();
+      } else {
+        session = { ...session, user: { ...session.user!, role: 'pro' } };
+        notifyAuth();
+      }
+      await vi.waitFor(() => expect(briefUpdates[briefUpdates.length - 1]).toMatchObject({ brief: 'Assessment after upgrade.' }));
+    } finally {
+      manager.destroy();
+      authState.mockRestore();
+      authSubscription.mockRestore();
+      entitlementSubscription.mockRestore();
+      premiumAccess.mockRestore();
+      belief.mockRestore();
+    }
+  });
+
+  it('rechecks a denial when the visitor signed in during the brief request', async () => {
+    let session: auth.AuthSession = { user: null, isPending: false };
+    let notify = () => {};
+    const authState = vi.spyOn(auth, 'getAuthState').mockImplementation(() => session);
+    const premiumAccess = vi.spyOn(panelGating, 'hasPremiumAccess').mockImplementation(() => session.user?.role === 'pro');
+    const authSubscription = vi.spyOn(auth, 'subscribeAuthState').mockImplementation(callback => {
+      notify = () => callback(session);
+      return () => {};
+    });
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    let denyRequest = (_response: Response) => {};
+    const denied = new Promise<Response>(resolve => { denyRequest = resolve; });
+    coverageMocks.premiumFetch.mockImplementation(async (url: string) => {
+      if (!url.includes('get-country-intel-brief')) throw new Error('offline');
+      return session.user ? Response.json({ brief: 'Assessment after sign-in.' }) : denied;
+    });
+    const { manager, open, briefUpdates } = createBriefHarness([], { realBriefFetch: true });
+    Reflect.set(manager, 'setupCountryIntel', async () => {});
+    try {
+      await manager.init();
+      const pendingOpen = open();
+      const briefRequests = () => coverageMocks.premiumFetch.mock.calls.filter(
+        ([url]) => String(url).includes('get-country-intel-brief'),
+      );
+      await vi.waitFor(() => expect(briefRequests()).toHaveLength(1));
+
+      session = { user: { id: 'fixture-user', name: 'Test Account', email: 'test@example.test', role: 'pro' }, isPending: false };
+      notify();
+      denyRequest(Response.json({ error: 'Authentication required' }, { status: 401 }));
+      await pendingOpen;
+
+      await vi.waitFor(() => expect(briefUpdates[briefUpdates.length - 1]).toMatchObject({ brief: 'Assessment after sign-in.' }));
+      expect(briefRequests()).toHaveLength(2);
+    } finally {
+      manager.destroy();
+      authState.mockRestore();
+      authSubscription.mockRestore();
+      premiumAccess.mockRestore();
+    }
+  });
+
+  it('uses a neutral unavailable notice after a signed-in session receives a 401', async () => {
+    const authState = vi.spyOn(auth, 'getAuthState').mockReturnValue({
+      user: { id: 'fixture-user', name: 'Test Account', email: 'test@example.test', role: 'pro' }, isPending: false,
+    });
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    coverageMocks.premiumFetch.mockImplementation(async () => Response.json({}, { status: 401 }));
+    const harness = createBriefHarness([], { realBriefFetch: true });
+    try {
+      await harness.open();
+      expect(harness.briefUpdates.some(update => update.accessNotice === 'unavailable')).toBe(true);
+      expect(harness.briefUpdates.some(update => update.accessNotice === 'sign-in')).toBe(false);
+    } finally {
+      harness.manager.destroy();
+      authState.mockRestore();
+    }
+  });
+
+  it('uses the shared default assessment without browser grounding and preserves its accepted timestamp', async () => {
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    const accepted = {
+      brief: 'Accepted server assessment [1].',
+      sources: [{ title: 'United States policy update', source: 'Server wire', url: 'https://example.com/accepted', publishedAt: '2026-10-19T10:00:00Z' }],
+      generatedAt: '2026-10-19T10:05:00Z',
+      cached: true,
+      evidence: [],
+    };
+    coverageMocks.premiumFetch.mockImplementation(async (input: unknown) => {
+      if (!String(input).includes('/get-country-intel-brief?')) throw new Error('offline');
+      return new Response(JSON.stringify(accepted));
+    });
+    const harness = createBriefHarness([newsItem('United States browser-only news')], { realBriefFetch: true });
+    await harness.open();
+    await vi.waitFor(() => expect(coverageMocks.premiumFetch.mock.calls.some(([input]) => String(input).includes('/get-country-intel-brief?'))).toBe(true));
+    const briefCall = coverageMocks.premiumFetch.mock.calls.find(([input]) => String(input).includes('/get-country-intel-brief?'))!;
+    const url = new URL(String(briefCall[0]), 'https://worldmonitor.app');
+    expect(url.searchParams.get('country_code')).toBe('US');
+    expect(url.searchParams.has('context')).toBe(false);
+    expect(url.searchParams.has('framework')).toBe(false);
+    await vi.waitFor(() => expect(harness.briefUpdates).toContainEqual(expect.objectContaining({
+      brief: accepted.brief, generatedAt: accepted.generatedAt, cached: true,
+      sources: expect.arrayContaining([expect.objectContaining({ url: 'https://example.com/accepted' })]),
+    })));
+  });
+
+  it('preserves browser context only for an explicitly selected framework', async () => {
+    coverageMocks.activeFramework.mockReturnValue({ systemPromptAppend: 'Focus on energy.' });
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    const harness = createBriefHarness([newsItem('United States energy policy')], { realBriefFetch: true });
+    await harness.open();
+    await vi.waitFor(() => expect(coverageMocks.premiumFetch.mock.calls.some(([input]) => String(input).includes('/get-country-intel-brief?'))).toBe(true));
+    const briefCall = coverageMocks.premiumFetch.mock.calls.find(([input]) => String(input).includes('/get-country-intel-brief?'))!;
+    const url = new URL(String(briefCall[0]), 'https://worldmonitor.app');
+    expect(url.searchParams.get('framework')).toBe('Focus on energy.');
+    expect(url.searchParams.get('context')).toContain('United States energy policy');
+  });
+
+  it.each([200, 503])('keeps browser source links on a local fallback after HTTP %s without an accepted brief', async (status) => {
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    coverageMocks.localSummaryAvailable = true;
+    coverageMocks.summarize.mockResolvedValue(['Local summary of the two United States headlines.']);
+    coverageMocks.premiumFetch.mockImplementation(async (input: unknown) => {
+      if (!String(input).includes('/get-country-intel-brief?')) throw new Error('offline');
+      return new Response(JSON.stringify({ brief: '', sources: [] }), { status });
+    });
+    const headlines = [newsItem('United States energy policy'), newsItem('United States trade policy')];
+    const harness = createBriefHarness(headlines, { realBriefFetch: true });
+    await harness.open();
+    await vi.waitFor(() => expect(harness.briefUpdates).toContainEqual(expect.objectContaining({
+      brief: 'Local summary of the two United States headlines.', fallback: true,
+      sources: headlines.map(item => expect.objectContaining({ url: item.link })),
+    })));
+  });
+
+  it.each(['fetch', 'summary'])('ignores a superseded brief when its %s rejects', async (phase) => {
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    coverageMocks.localSummaryAvailable = true;
+    let rejectOldRequest = (_reason: Error) => {};
+    const oldRequest = new Promise<never>((_resolve, reject) => { rejectOldRequest = reject; });
+    const beforeReopen = vi.fn();
+    let requestCount = 0;
+    coverageMocks.premiumFetch.mockImplementation(async (input: unknown) => {
+      if (!String(input).includes('/get-country-intel-brief?')) throw new Error('offline');
+      if (++requestCount > 1) return Response.json({ brief: 'Current assessment.' });
+      if (phase === 'summary') return Response.json({}, { status: 401 });
+      beforeReopen();
+      return oldRequest;
+    });
+    coverageMocks.summarize.mockImplementation(async () => {
+      beforeReopen();
+      return oldRequest;
+    });
+    const headlines = [newsItem('United States energy policy'), newsItem('United States trade policy')];
+    const harness = createBriefHarness(headlines, { realBriefFetch: true });
+    try {
+      const staleOpen = harness.open();
+      await vi.waitFor(() => expect(beforeReopen).toHaveBeenCalledOnce());
+      await harness.open();
+      const updateCount = harness.briefUpdates.length;
+      expect(harness.briefUpdates[updateCount - 1]).toMatchObject({ brief: 'Current assessment.' });
+
+      rejectOldRequest(new Error('old request failed'));
+      await staleOpen;
+      expect(harness.briefUpdates).toHaveLength(updateCount);
+    } finally {
+      harness.manager.destroy();
+    }
+  });
+
+  it('keeps coverage alive on close but aborts it when another brief opens', async () => {
+    const signals: AbortSignal[] = [];
+    let resolveCoverage!: (value: { headlines: NewsItem[]; timelineEvents: [] }) => void;
+    const pending = new Promise<{ headlines: NewsItem[]; timelineEvents: [] }>(resolve => {
+      resolveCoverage = resolve;
+    });
+    coverageMocks.fetchCountryCoverage.mockImplementation(
+      (_country: string, _terms: string[], options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return signals.length === 1 ? pending : Promise.resolve({ headlines: [], timelineEvents: [] });
+      },
+    );
+    const harness = createBriefHarness([]);
+    await harness.bindClose();
+    await harness.open();
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    harness.close();
+    expect(signals[0]!.aborted).toBe(false);
+    await harness.open();
+    await vi.waitFor(() => expect(signals).toHaveLength(2));
+    expect(signals[0]!.aborted).toBe(true);
+    expect(signals[1]!.aborted).toBe(false);
+    const staleHeadline = newsItem('US announces stale coverage');
+    resolveCoverage({ headlines: [staleHeadline], timelineEvents: [] });
+    await pending;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.newsUpdates.flat()).not.toContainEqual(staleHeadline);
+  });
+
+  it('does not replace eager news when the opened country appears second in a lazy headline', async () => {
+    const eagerHeadline = newsItem('US announces new sanctions package');
+    const secondCountryHeadline = newsItem('Iran considers latest US proposal');
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({
+      headlines: [secondCountryHeadline],
+      timelineEvents: [],
+    });
+
+    const { newsUpdates, open } = createBriefHarness([eagerHeadline]);
+    await open();
+    await vi.waitFor(() => expect(coverageMocks.fetchCountryCoverage).toHaveBeenCalled());
+    await vi.waitFor(() => expect(newsUpdates.length).toBeGreaterThanOrEqual(1));
+
+    expect(newsUpdates[0]?.map((item) => item.title)).toEqual([eagerHeadline.title]);
+    expect(newsUpdates.some((batch) => batch.some((item) => item.title === secondCountryHeadline.title)))
+      .toBe(false);
+    expect(newsUpdates[newsUpdates.length - 1]?.map((item: NewsItem) => item.title)).toEqual([eagerHeadline.title]);
+  });
+
+  it('keeps the dashboard headlines when reviewed country coverage arrives', async () => {
+    const eagerHeadline = newsItem('US announces new sanctions package');
+    const supplementalHeadline = newsItem('US releases new retail sales figures');
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [supplementalHeadline], timelineEvents: [] });
+    const { newsUpdates, open } = createBriefHarness([eagerHeadline]);
+
+    await open();
+
+    await vi.waitFor(() => expect(newsUpdates[newsUpdates.length - 1]).toEqual([eagerHeadline, supplementalHeadline]));
+  });
+
+  it('passes only well-formed evidence items from the brief response to the page', async () => {
+    coverageMocks.fetchCountryCoverage.mockResolvedValue({ headlines: [], timelineEvents: [] });
+    const validItem = {
+      id: 'E2',
+      kind: 'resilience',
+      label: 'Fiscal space',
+      value: '28/100',
+      factText: 'Fiscal space scores 28 of 100.',
+      asOf: '2026-09-01',
+      url: 'https://www.worldmonitor.app/country/US',
+    };
+    coverageMocks.premiumFetch.mockImplementation(async (url: string) => {
+      if (!String(url).includes('get-country-intel-brief')) throw new Error('offline');
+      return new Response(JSON.stringify({
+        brief: 'SITUATION NOW\nFiscal space scores 28 of 100. [E2]',
+        sources: [],
+        evidence: [validItem, null, { label: 'No id', value: '1' }, { id: 7, label: 'Number id', value: '2' }, 'E3'],
+        generatedAt: 1758585600000,
+        cached: false,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    const { briefUpdates, open } = createBriefHarness([], { realBriefFetch: true });
+    await open();
+    await vi.waitFor(() => expect(briefUpdates.some((update) => update.brief)).toBe(true));
+
+    const update = briefUpdates.find((entry) => entry.brief)!;
+    expect(update.brief).toBe('SITUATION NOW\nFiscal space scores 28 of 100. [E2]');
+    expect(update.evidence).toEqual([validItem]);
+  });
+});

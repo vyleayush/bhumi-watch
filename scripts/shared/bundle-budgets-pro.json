@@ -1,0 +1,158 @@
+{
+  "comment": "/pro subapp bundle-size budgets (#7119). Gated on raw bytes: per chunk ±max(2048 B, 2%), total ±max(16384 B, 0.25%). Tolerance fields here are informational — the gate enforces its own constants and rejects a snapshot that disagrees. Regenerate after \"npm run build:pro && VITE_VARIANT=full ./node_modules/.bin/vite build\" with: npm run bundle:budgets:pro",
+  "surface": "pro",
+  "variant": "pro",
+  "tolerancePct": 2,
+  "toleranceBytes": 2048,
+  "totalTolerancePct": 0.25,
+  "totalToleranceBytes": 16384,
+  "total": {
+    "raw": 5202522
+  },
+  "chunks": {
+    "LiveBriefCard": {
+      "raw": 4446,
+      "files": 1
+    },
+    "PlanComparisonTable": {
+      "raw": 5865,
+      "files": 1
+    },
+    "ar": {
+      "raw": 59995,
+      "files": 1
+    },
+    "bg": {
+      "raw": 69483,
+      "files": 1
+    },
+    "clerk": {
+      "raw": 2997340,
+      "files": 1
+    },
+    "cs": {
+      "raw": 44396,
+      "files": 1
+    },
+    "de": {
+      "raw": 44367,
+      "files": 1
+    },
+    "el": {
+      "raw": 72971,
+      "files": 1
+    },
+    "es": {
+      "raw": 46080,
+      "files": 1
+    },
+    "fa": {
+      "raw": 64793,
+      "files": 1
+    },
+    "fr": {
+      "raw": 48155,
+      "files": 1
+    },
+    "hi": {
+      "raw": 81815,
+      "files": 1
+    },
+    "hr": {
+      "raw": 43435,
+      "files": 1
+    },
+    "hu": {
+      "raw": 48094,
+      "files": 1
+    },
+    "id": {
+      "raw": 43550,
+      "files": 1
+    },
+    "index": {
+      "raw": 557158,
+      "files": 2
+    },
+    "it": {
+      "raw": 44149,
+      "files": 1
+    },
+    "ja": {
+      "raw": 53163,
+      "files": 1
+    },
+    "ko": {
+      "raw": 46345,
+      "files": 1
+    },
+    "nl": {
+      "raw": 42902,
+      "files": 1
+    },
+    "pl": {
+      "raw": 44946,
+      "files": 1
+    },
+    "pt": {
+      "raw": 45252,
+      "files": 1
+    },
+    "ro": {
+      "raw": 46106,
+      "files": 1
+    },
+    "ru": {
+      "raw": 70760,
+      "files": 1
+    },
+    "sentry": {
+      "raw": 86676,
+      "files": 1
+    },
+    "story-dedupe": {
+      "raw": 10190,
+      "files": 1
+    },
+    "sv": {
+      "raw": 42850,
+      "files": 1
+    },
+    "sw": {
+      "raw": 44926,
+      "files": 1
+    },
+    "teasers": {
+      "raw": 9179,
+      "files": 1
+    },
+    "th": {
+      "raw": 90183,
+      "files": 1
+    },
+    "tr": {
+      "raw": 45429,
+      "files": 1
+    },
+    "uk": {
+      "raw": 68819,
+      "files": 1
+    },
+    "vi": {
+      "raw": 54441,
+      "files": 1
+    },
+    "welcome": {
+      "raw": 46430,
+      "files": 1
+    },
+    "zh": {
+      "raw": 38891,
+      "files": 1
+    },
+    "zh-TW": {
+      "raw": 38942,
+      "files": 1
+    }
+  }
+}

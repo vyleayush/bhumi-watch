@@ -1,0 +1,629 @@
+/**
+ * API Business domain-gated Pro-seat invites (#4634/#4635).
+ *
+ * An active API Business subscriber on a corporate email domain may invite up
+ * to 4 teammates at any corporate email domain. Each accepted invitee resolves
+ * to a full Pro entitlement (minus billing/account management) via the grant row in
+ * `businessProGrants`. Grants are auto-revoked when the Business subscription
+ * stops covering.
+ */
+
+import { assertAccountWritable } from "../accountDeletion/guard";
+import { ConvexError, v } from "convex/values";
+import {
+  internalAction,
+  internalMutation,
+  mutation,
+  query,
+  type ActionCtx,
+  type MutationCtx,
+  type QueryCtx,
+} from "../_generated/server";
+import { internal } from "../_generated/api";
+import { USER_AGENT } from "../broadcast/_resendContacts";
+import { ResendSendError, sendResendEmail } from "../lib/resendEmail";
+import { requireUserId, resolveUserIdentity } from "../lib/auth";
+import { EMAIL_RED, emailButton, emailCard, emailFrame, emailHeading, emailNote, emailParagraph, escapeEmailHtml } from "../../shared/email-frame";
+import {
+  extractDomain,
+  isCorporateDomain,
+  sameDomain,
+} from "../lib/emailDomain";
+import {
+  signBusinessInviteToken,
+  verifyBusinessInviteToken,
+} from "../lib/identitySigning";
+import { hasAccessAt, isBusinessPlan, isCoveringAt } from "./subscriptionHelpers";
+
+const MAX_SEATS = 4;
+const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+/** Each extension adds at most 14 days to the later of the current expiry and now. */
+const MAX_EXTENSION_HOURS = INVITE_TTL_MS / HOUR_MS;
+
+/** "7 November 2026 at 08:22 UTC" — unambiguous across the invitee's locale. */
+export function formatInviteExpiry(expiresAt: number): string {
+  const d = new Date(expiresAt);
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} at ${hh}:${mm} UTC`;
+}
+const RESEND_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * Touch-or-insert the per-Business-subscription OCC lock row shared by
+ * inviteSeats and removeSeat. EVERY mutation that mutates `businessProGrants`
+ * for a Business sub must read AND write this row, forcing Convex's
+ * per-document OCC to serialize concurrent calls. Without this, two parallel
+ * invites could both pass the cap check and insert a 5th grant.
+ */
+async function touchBusinessSeatLock(
+  ctx: MutationCtx,
+  businessSubscriptionId: string,
+  now: number,
+): Promise<void> {
+  const lock = await ctx.db
+    .query("businessSeatLocks")
+    .withIndex("by_businessSubscriptionId", (q) =>
+      q.eq("businessSubscriptionId", businessSubscriptionId),
+    )
+    .unique();
+  if (lock) {
+    await ctx.db.patch(lock._id, { lastTouchedAt: now });
+  } else {
+    await ctx.db.insert("businessSeatLocks", {
+      businessSubscriptionId,
+      lastTouchedAt: now,
+    });
+  }
+}
+
+/**
+ * Returns the caller's covering monthly or annual API Business subscription.
+ */
+async function getCoveringBusinessSubscription(
+  ctx: MutationCtx | QueryCtx,
+  userId: string,
+  at: number,
+) {
+  const subs = await ctx.db
+    .query("subscriptions")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .collect();
+  // Prefer a row that grants access: a failed renewal past its access grace
+  // still covers for billing and must not hide another, live Business row.
+  const business = subs.filter((s) => isBusinessPlan(s.planKey) && isCoveringAt(s, at));
+  return business.find((s) => hasAccessAt(s, at)) ?? business[0] ?? null;
+}
+
+/**
+ * Counts active-or-pending grants for a Business subscription. Pending
+ * (un-accepted, un-expired) invites count against the cap to prevent
+ * over-issuing; expired/revoked ones free a slot.
+ */
+async function countActiveOrPendingGrants(
+  ctx: MutationCtx | QueryCtx,
+  businessSubscriptionId: string,
+  at: number,
+) {
+  const grants = await ctx.db
+    .query("businessProGrants")
+    .withIndex("by_businessSubscriptionId", (q) =>
+      q.eq("businessSubscriptionId", businessSubscriptionId),
+    )
+    .collect();
+  return grants.filter((g) => {
+    if (g.status === "accepted") return true;
+    if (g.status === "pending" && g.expiresAt > at) return true;
+    return false;
+  }).length;
+}
+
+/**
+ * Owner invites up to 4 teammates at any corporate email domain. Pending
+ * invites count against the cap; each gets a single-use HMAC token emailed via Resend.
+ */
+export const inviteSeats = mutation({
+  args: { emails: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await assertAccountWritable(ctx, userId);
+    const identity = await resolveUserIdentity(ctx);
+    const ownerEmail = identity?.email?.trim();
+    if (!ownerEmail) {
+      throw new ConvexError({ kind: "OWNER_EMAIL_UNAVAILABLE" });
+    }
+
+    const now = Date.now();
+    const businessSub = await getCoveringBusinessSubscription(ctx, userId, now);
+    // A failed renewal past its access grace still covers for billing, but
+    // its seats would grant nothing (pickBestAcceptedBusinessGrant reads
+    // hasAccessAt), so new invites wait until the owner fixes payment.
+    if (!businessSub || !hasAccessAt(businessSub, now)) {
+      throw new ConvexError({ kind: "OWNER_NOT_BUSINESS" });
+    }
+
+    const ownerDomain = extractDomain(ownerEmail);
+    if (!ownerDomain || !isCorporateDomain(ownerEmail)) {
+      throw new ConvexError({ kind: "OWNER_DOMAIN_NOT_CORPORATE" });
+    }
+
+    // Serialize concurrent inviteSeats / removeSeat calls for this Business
+    // subscription so the cap check below cannot be bypassed by a race.
+    await touchBusinessSeatLock(ctx, businessSub.dodoSubscriptionId, now);
+
+    const normalizedOwnerEmail = ownerEmail.toLowerCase();
+    // Dedupe: the existingByEmail check below only guards against emails
+    // that already had a grant BEFORE this call — a duplicate within the
+    // SAME args.emails array would otherwise slip past it (neither
+    // occurrence is in existingGrants yet) and create two grant rows for
+    // one invitee.
+    const emails = Array.from(
+      new Set(args.emails.map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0)),
+    );
+    if (emails.length === 0) {
+      throw new ConvexError({ kind: "NO_EMAILS_PROVIDED" });
+    }
+    if (emails.length > MAX_SEATS) {
+      throw new ConvexError({ kind: "TOO_MANY_EMAILS" });
+    }
+
+    // Check existing grants for duplicates (active or pending).
+    const existingGrants = await ctx.db
+      .query("businessProGrants")
+      .withIndex("by_businessSubscriptionId", (q) =>
+        q.eq("businessSubscriptionId", businessSub.dodoSubscriptionId),
+      )
+      .collect();
+    const existingByEmail = new Map(
+      existingGrants.map((g) => [g.inviteeEmail, g]),
+    );
+
+    // Separate new invites from duplicates before the cap check so a duplicate
+    // re-invite is idempotent even when the cap is full.
+    const newEmails: string[] = [];
+    const results: Array<{
+      email: string;
+      grantId: string;
+      status: "created" | "already_pending" | "already_accepted";
+    }> = [];
+
+    for (const email of emails) {
+      if (email === normalizedOwnerEmail) {
+        throw new ConvexError({ kind: "CANNOT_INVITE_SELF" });
+      }
+      if (!isCorporateDomain(email)) {
+        throw new ConvexError({ kind: "INVITEE_DOMAIN_NOT_CORPORATE" });
+      }
+
+      const existing = existingByEmail.get(email);
+      if (existing) {
+        if (existing.status === "accepted") {
+          results.push({ email, grantId: existing._id, status: "already_accepted" });
+          continue;
+        }
+        if (existing.status === "pending" && existing.expiresAt > now) {
+          results.push({ email, grantId: existing._id, status: "already_pending" });
+          continue;
+        }
+      }
+      newEmails.push(email);
+    }
+
+    const currentCount = await countActiveOrPendingGrants(
+      ctx,
+      businessSub.dodoSubscriptionId,
+      now,
+    );
+    if (currentCount + newEmails.length > MAX_SEATS) {
+      throw new ConvexError({ kind: "SEAT_CAP_REACHED" });
+    }
+
+    for (const email of newEmails) {
+      const grantId = await ctx.db.insert("businessProGrants", {
+        businessSubscriptionId: businessSub.dodoSubscriptionId,
+        ownerUserId: userId,
+        inviteeEmail: email,
+        domain: ownerDomain,
+        status: "pending",
+        createdAt: now,
+        expiresAt: now + INVITE_TTL_MS,
+      });
+
+      const token = await signBusinessInviteToken(grantId);
+      await ctx.scheduler.runAfter(
+        0,
+        internal.payments.businessSeats.sendBusinessInviteEmail,
+        { inviteeEmail: email, ownerEmail, grantId, token },
+      );
+      results.push({ email, grantId, status: "created" });
+    }
+
+    return { invited: results };
+  },
+});
+
+/**
+ * Shared Resend send + error-handling for both business-seat email actions.
+ * Routed through the shared helper so the local suppression table is checked
+ * (seat mail used to skip it) and replies reach support@ instead of noreply@.
+ * `skipLogContext` names what's being skipped when RESEND_API_KEY is unset;
+ * `failureLabel` names the operation in the thrown error on a non-2xx.
+ */
+async function sendSeatEmail(ctx: Pick<ActionCtx, "runQuery">, opts: {
+  to: string;
+  subject: string;
+  html: string;
+  skipLogContext: string;
+  failureLabel: string;
+  successLog: string;
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error(`[businessSeats] RESEND_API_KEY not set — skipping ${opts.skipLogContext}`);
+    return;
+  }
+
+  let result;
+  try {
+    result = await sendResendEmail(ctx, {
+      apiKey,
+      from: "World Monitor <noreply@worldmonitor.app>",
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      purpose: "transactional",
+      userAgent: USER_AGENT,
+      timeoutMs: RESEND_FETCH_TIMEOUT_MS,
+    });
+  } catch (err) {
+    if (err instanceof ResendSendError) {
+      console.error(`[businessSeats] Resend ${err.status}: ${err.body}`);
+      throw new Error(`Resend ${opts.failureLabel} failed: ${err.status}`);
+    }
+    throw err;
+  }
+  if (!result.sent) {
+    console.log(`[businessSeats] Skipped ${opts.skipLogContext}: recipient is suppressed`);
+    return;
+  }
+  console.log(opts.successLog);
+}
+
+const SEAT_SUPPORT_NOTE = 'Questions? Reply to this email or contact <a href="mailto:support@worldmonitor.app" style="color: #4ade80;">support@worldmonitor.app</a>.';
+
+/** The team-access-ended email body. Exported for tests. */
+export function teamAccessEndedEmailHtml(): string {
+  return emailFrame({
+    preheader: "Your WorldMonitor Pro seat has ended and your account is back on the free tier.",
+    kicker: "Team access",
+    accent: EMAIL_RED,
+    bodyHtml: `${emailHeading("Team access ended")}
+      ${emailCard(emailParagraph("Your WorldMonitor Pro seat on a team Business plan has ended because the plan is no longer active. Your account has returned to the free tier."), { color: EMAIL_RED })}
+      ${emailButton("https://worldmonitor.app/pro", "View plans", EMAIL_RED)}
+      ${emailNote(SEAT_SUPPORT_NOTE)}`,
+    footerNote: "You're receiving this because you held a seat on a WorldMonitor team plan.",
+  });
+}
+
+/** The Business seat invite email body. Exported for tests. */
+export function businessInviteEmailHtml(args: { ownerEmail: string; acceptUrl: string; expiryNote: string }): string {
+  return emailFrame({
+    preheader: `${args.ownerEmail} invited you to a WorldMonitor Pro seat.`,
+    kicker: "Team invite",
+    bodyHtml: `${emailHeading("You're invited to WorldMonitor Pro")}
+      ${emailCard(emailParagraph(`${escapeEmailHtml(args.ownerEmail)} has invited you to a Pro seat on their WorldMonitor API Business plan. Accept the invite to unlock all Pro features, with no billing setup required.`))}
+      ${emailButton(args.acceptUrl, "Accept invite")}
+      ${emailNote(`${escapeEmailHtml(args.expiryNote)} If you didn't expect this email, you can ignore it.`)}`,
+    footerNote: "You're receiving this because a WorldMonitor Business plan owner invited this address.",
+  });
+}
+
+/**
+ * Notifies a revoked invitee that their team access ended. Scheduled from the
+ * revoke-on-lapse path in subscriptionHelpers.
+ */
+export const sendTeamAccessEndedEmail = internalAction({
+  args: { inviteeEmail: v.string() },
+  handler: async (ctx, args) => {
+    const html = teamAccessEndedEmailHtml();
+
+    await sendSeatEmail(ctx, {
+      to: args.inviteeEmail,
+      subject: "Your WorldMonitor team access has ended",
+      html,
+      skipLogContext: "team-access-ended email",
+      failureLabel: "team-access-ended email",
+      successLog: `[businessSeats] Team-access-ended email sent to ${args.inviteeEmail.split("@")[0]}@...`,
+    });
+  },
+});
+
+/**
+ * Sends the invite email via Resend. Scheduled from inviteSeats so delivery
+ * does not block the mutation.
+ */
+export const sendBusinessInviteEmail = internalAction({
+  args: {
+    inviteeEmail: v.string(),
+    ownerEmail: v.string(),
+    grantId: v.string(),
+    token: v.string(),
+    // Set when an extended invite is re-sent; the default copy assumes 14 days.
+    expiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const expiryNote = args.expiresAt === undefined
+      ? "This invite expires in 14 days."
+      : `This invite expires on ${formatInviteExpiry(args.expiresAt)}.`;
+    const acceptUrl = `https://www.worldmonitor.app/dashboard?accept-business-invite=${encodeURIComponent(args.grantId)}&token=${encodeURIComponent(args.token)}`;
+    const html = businessInviteEmailHtml({ ownerEmail: args.ownerEmail, acceptUrl, expiryNote });
+
+    await sendSeatEmail(ctx, {
+      to: args.inviteeEmail,
+      subject: "You've been invited to WorldMonitor Pro",
+      html,
+      skipLogContext: "invite email",
+      failureLabel: "invite email",
+      successLog: `[businessSeats] Invite email sent to ${args.inviteeEmail.split("@")[0]}@... (grant ${args.grantId.slice(0, 8)}...)`,
+    });
+  },
+});
+
+/**
+ * Lists the owner's seats for the settings UI. Only the owner sees their own
+ * grants.
+ */
+export const listSeats = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUserId(ctx);
+    const identity = await resolveUserIdentity(ctx);
+    const ownerEmail = identity?.email?.trim() ?? "";
+    // Server-computed corporate-domain check, using the same authoritative
+    // isCorporateDomain() the invite/accept mutations enforce — the settings
+    // UI uses this instead of maintaining its own copy of the free-domain
+    // list, which drifted stale and shorter than the real one.
+    const ownerDomain = ownerEmail ? extractDomain(ownerEmail) : null;
+    const ownerIsCorporateDomain = ownerEmail ? isCorporateDomain(ownerEmail) : false;
+
+    const now = Date.now();
+    const businessSub = await getCoveringBusinessSubscription(ctx, userId, now);
+    if (!businessSub) {
+      return { seats: [], businessSubscriptionId: null, ownerDomain, ownerIsCorporateDomain };
+    }
+
+    const grants = await ctx.db
+      .query("businessProGrants")
+      .withIndex("by_businessSubscriptionId", (q) =>
+        q.eq("businessSubscriptionId", businessSub.dodoSubscriptionId),
+      )
+      .collect();
+
+    return {
+      businessSubscriptionId: businessSub.dodoSubscriptionId,
+      ownerDomain,
+      ownerIsCorporateDomain,
+      seats: grants.map((g) => ({
+        grantId: g._id,
+        inviteeEmail: g.inviteeEmail,
+        // Compute the effective status at read time: a "pending" grant past
+        // its expiresAt is expired even though the stored row hasn't been
+        // swept yet (nothing proactively flips it) — without this, the UI
+        // would show a lapsed invite as still pending indefinitely, and
+        // the reader's status wouldn't agree with countActiveOrPendingGrants'
+        // own expiry check.
+        status: g.status === "pending" && g.expiresAt <= now ? "expired" : g.status,
+        createdAt: g.createdAt,
+        acceptedAt: g.acceptedAt ?? null,
+        expiresAt: g.expiresAt,
+      })),
+    };
+  },
+});
+
+/**
+ * Owner-only removal of a single seat. Revokes the grant and recomputes the
+ * invitee's entitlement.
+ */
+export const removeSeat = mutation({
+  args: { grantId: v.id("businessProGrants") },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const grant = await ctx.db.get(args.grantId);
+    if (!grant) {
+      throw new ConvexError({ kind: "GRANT_NOT_FOUND" });
+    }
+    if (grant.ownerUserId !== userId) {
+      throw new ConvexError({ kind: "NOT_OWNER" });
+    }
+    if (grant.status !== "pending" && grant.status !== "accepted") {
+      return { ok: true as const, status: "already_inactive" as const };
+    }
+
+    const now = Date.now();
+    // Serialize with inviteSeats via the per-Business-subscription lock row.
+    await touchBusinessSeatLock(ctx, grant.businessSubscriptionId, now);
+
+    await ctx.db.patch(args.grantId, { status: "revoked" });
+
+    if (grant.inviteeUserId) {
+      await ctx.runMutation(
+        internal.payments.subscriptionHelpers.recomputeEntitlementForUser,
+        { userId: grant.inviteeUserId, eventTimestamp: now },
+      );
+    }
+    return { ok: true as const, status: "revoked" as const };
+  },
+});
+
+/**
+ * Invitee redeems an HMAC token to accept a Business Pro seat invite. Verifies
+ * the token, matches the signed-in verified Clerk email against the invited address,
+ * checks the underlying Business subscription is still covering, flips the
+ * grant to `accepted`, stamps `inviteeUserId`, and recomputes the invitee's
+ * entitlement. Single-use: accepted/revoked/expired tokens are rejected.
+ */
+export const acceptBusinessInvite = mutation({
+  args: { grantId: v.id("businessProGrants"), token: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await assertAccountWritable(ctx, userId);
+    const identity = await resolveUserIdentity(ctx);
+    const inviteeEmail = identity?.email?.trim().toLowerCase();
+    if (!inviteeEmail) {
+      throw new ConvexError({ kind: "INVITEE_EMAIL_UNAVAILABLE" });
+    }
+    if (identity?.emailVerified !== true) {
+      throw new ConvexError({ kind: "INVITEE_EMAIL_UNVERIFIED" });
+    }
+
+    const grant = await ctx.db.get(args.grantId);
+    if (!grant) {
+      throw new ConvexError({ kind: "GRANT_NOT_FOUND" });
+    }
+    await assertAccountWritable(ctx, grant.ownerUserId);
+    if (grant.status !== "pending") {
+      throw new ConvexError({ kind: "INVITE_ALREADY_USED" });
+    }
+    const now = Date.now();
+    if (grant.expiresAt <= now) {
+      throw new ConvexError({ kind: "INVITE_EXPIRED" });
+    }
+    if (!(await verifyBusinessInviteToken(args.grantId, args.token))) {
+      throw new ConvexError({ kind: "INVALID_INVITE_TOKEN" });
+    }
+    if (grant.inviteeEmail !== inviteeEmail) {
+      throw new ConvexError({ kind: "INVITE_EMAIL_MISMATCH" });
+    }
+    if (!sameDomain(grant.inviteeEmail, inviteeEmail)) {
+      throw new ConvexError({ kind: "INVITE_EMAIL_MISMATCH" });
+    }
+    if (!isCorporateDomain(inviteeEmail)) {
+      throw new ConvexError({ kind: "INVITEE_DOMAIN_NOT_CORPORATE" });
+    }
+
+    const businessSub = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_dodoSubscriptionId", (q) =>
+        q.eq("dodoSubscriptionId", grant.businessSubscriptionId),
+      )
+      .unique();
+    if (!businessSub || !isBusinessPlan(businessSub.planKey) || !hasAccessAt(businessSub, now)) {
+      throw new ConvexError({ kind: "BUSINESS_NOT_ACTIVE" });
+    }
+
+    await ctx.db.patch(args.grantId, {
+      status: "accepted",
+      inviteeUserId: userId,
+      acceptedAt: now,
+    });
+
+    await ctx.runMutation(
+      internal.payments.subscriptionHelpers.recomputeEntitlementForUser,
+      { userId, eventTimestamp: now },
+    );
+
+    return { ok: true as const };
+  },
+});
+
+/**
+ * Support tool: extend a pending invite by `hours` and re-send it.
+ *
+ * The emailed token embeds its own expiry, so moving `expiresAt` alone would
+ * leave the invitee's link dead at the old time. This signs a new token for the
+ * new expiry and emails it; the old link keeps its original expiry. The
+ * extension counts from the later of the current expiry and now, so a lapsed
+ * invite can be revived. Run from the CLI:
+ *
+ *   npx convex run payments/businessSeats:extendBusinessInvite '{"grantId":"…","hours":24}'
+ *
+ * Every run with `hours` > 0 extends again. To retry a failed email without
+ * extending, pass `"hours":0`: it re-sends a link for the current expiry and
+ * refuses an invite that has already lapsed.
+ */
+export const extendBusinessInvite = internalMutation({
+  args: { grantId: v.id("businessProGrants"), hours: v.number() },
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.hours) || args.hours < 0 || args.hours > MAX_EXTENSION_HOURS) {
+      throw new ConvexError({ kind: "INVALID_EXTENSION_HOURS" });
+    }
+    const grant = await ctx.db.get(args.grantId);
+    if (!grant) {
+      throw new ConvexError({ kind: "GRANT_NOT_FOUND" });
+    }
+    // An owner whose account is being deleted cannot have invites accepted,
+    // so do not change or re-send them.
+    await assertAccountWritable(ctx, grant.ownerUserId);
+    if (grant.status !== "pending") {
+      throw new ConvexError({ kind: "INVITE_NOT_PENDING" });
+    }
+    const now = Date.now();
+    if (args.hours === 0 && grant.expiresAt <= now) {
+      throw new ConvexError({ kind: "INVITE_EXPIRED" });
+    }
+    const businessSub = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_dodoSubscriptionId", (q) =>
+        q.eq("dodoSubscriptionId", grant.businessSubscriptionId),
+      )
+      .unique();
+    if (!businessSub || !isBusinessPlan(businessSub.planKey) || !hasAccessAt(businessSub, now)) {
+      throw new ConvexError({ kind: "BUSINESS_NOT_ACTIVE" });
+    }
+    // The owner may have re-invited the same address after this invite lapsed.
+    // Two usable grants for one person would hold two seats.
+    const siblings = await ctx.db
+      .query("businessProGrants")
+      .withIndex("by_businessSubscriptionId", (q) =>
+        q.eq("businessSubscriptionId", grant.businessSubscriptionId),
+      )
+      .collect();
+    const inviteeEmail = grant.inviteeEmail.trim().toLowerCase();
+    const duplicate = siblings.some((g) =>
+      g._id !== grant._id
+      && g.inviteeEmail.trim().toLowerCase() === inviteeEmail
+      && (g.status === "accepted" || (g.status === "pending" && g.expiresAt > now)),
+    );
+    if (duplicate) {
+      throw new ConvexError({ kind: "DUPLICATE_INVITE" });
+    }
+    // A lapsed invite has freed its seat; reviving it must not exceed the cap.
+    if (grant.expiresAt <= now) {
+      const activeOrPending = await countActiveOrPendingGrants(ctx, grant.businessSubscriptionId, now);
+      if (activeOrPending >= MAX_SEATS) {
+        throw new ConvexError({ kind: "SEAT_CAP_REACHED" });
+      }
+    }
+    const owner = await ctx.db
+      .query("customers")
+      .withIndex("by_userId", (q) => q.eq("userId", grant.ownerUserId))
+      .first();
+    const ownerEmail = owner?.email?.trim();
+    if (!ownerEmail) {
+      throw new ConvexError({ kind: "OWNER_EMAIL_UNAVAILABLE" });
+    }
+
+    const expiresAt = args.hours === 0
+      ? grant.expiresAt
+      : Math.max(grant.expiresAt, now) + args.hours * HOUR_MS;
+    if (expiresAt !== grant.expiresAt) {
+      await ctx.db.patch(args.grantId, { expiresAt });
+    }
+    const token = await signBusinessInviteToken(args.grantId, expiresAt);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.payments.businessSeats.sendBusinessInviteEmail,
+      { inviteeEmail: grant.inviteeEmail, ownerEmail, grantId: args.grantId, token, expiresAt },
+    );
+    console.log(
+      `[businessSeats] Extended invite ${args.grantId.slice(0, 8)}... by ${args.hours}h to ${new Date(expiresAt).toISOString()}`,
+    );
+    return { grantId: args.grantId, expiresAt };
+  },
+});

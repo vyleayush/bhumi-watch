@@ -1,0 +1,462 @@
+// Force-reload tabs running a stale frontend bundle when a newer deploy is
+// live. Catches the class of bug where users keep a tab open across a
+// wire-shape change (e.g. PR #3466 fixing the setPreferences CONFLICT
+// propagation) and end up in a permanent retry loop against the new server
+// because their JS doesn't understand the new response shape.
+//
+// Mechanism: on tab focus, fetch /build-hash.txt (a static asset emitted by
+// the Vite plugin in vite.config.ts at build time, content = the deployed
+// SHA) and compare against __BUILD_HASH__ baked into the running bundle.
+//
+// A mismatch alone no longer reloads. Production deploys land dozens of times
+// a day and almost none of them change anything an open tab depends on, so a
+// reload per deploy interrupted reading and stopped live video many times a
+// day. On a mismatch the module reads /client-compat.txt and compares it with
+// CLIENT_COMPAT (src/bootstrap/client-compat.ts):
+//
+//   - marker differs, or the deploy serves none → hard reload, as before. This
+//     is the PR #3466 protection, now reserved for the deploys that need it.
+//   - marker unchanged → reload only when src/bootstrap/soft-reload-policy.ts
+//     allows it: tab hidden, no sound playing, page open long enough.
+//
+// /build-hash.txt is intentionally NOT under /api/* so installWebApiRedirect
+// does NOT rewrite it to the canonical API host — it stays same-origin with
+// the bundle, which is the correct comparison target.
+//
+// The reload never fires under an open modal (#8577). Returning to the app is
+// this module's main trigger, and it is also how a user gets back from their
+// mail app with a Clerk email verification code, so an unguarded reload wiped
+// the sign-up they were halfway through. A mismatch found under a modal is
+// remembered in `pendingReload` and the module stops fetching; every later
+// trigger retries the reload against the live DOM until one lands. What counts
+// as blocking is `findReloadBlockingModal`, shared with the service-worker
+// updater — every first-party overlay declares its reload contract with
+// `declareOverlay`, and 'safe' surfaces (a read-only display, a prompt that
+// re-appears on the next load) do not hold the reload off. Silence blocks, and
+// a silent surface that auto-opens with no auto-dismiss wedges the tab for the
+// session (WORLDMONITOR-15X/15Z: first the onboarding popover, then the
+// SignalModal, neither of which is the sign-up case this guard is for).
+
+import { markPageUnloading } from '@/bootstrap/page-unload-signal';
+import { enqueueSentryCall } from '@/bootstrap/sentry-defer';
+import { findReloadBlockingModal, type ModalDocumentLike, type ReloadBlocker } from '@/utils/open-modal';
+import { CLIENT_COMPAT } from '@/bootstrap/client-compat';
+import { currentSoftReloadHold, type SoftReloadHold } from '@/bootstrap/soft-reload-policy';
+
+// Captured before main() replaces window.fetch. check() catches the promise
+// it awaits. A wrapper on the live fetch can also attach
+// promise.then(onFulfilled) and leave that derived promise to reject.
+let fetchBeforeWindowPatches: typeof globalThis.fetch | undefined =
+  typeof globalThis.fetch === 'function' ? globalThis.fetch : undefined;
+
+export function _setFetchBeforeWindowPatchesForTests(
+  next: typeof globalThis.fetch | undefined,
+): typeof globalThis.fetch | undefined {
+  const previous = fetchBeforeWindowPatches;
+  fetchBeforeWindowPatches = next;
+  return previous;
+}
+
+interface EventTargetLike {
+  addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
+  removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
+}
+
+/**
+ * The document surface this module needs: the visibility trigger AND the modal
+ * probe. Extending the shared `ModalDocumentLike` rather than redeclaring it
+ * keeps one definition of the modal contract, so a fake cannot model a document
+ * that answers `visibilitychange` but not the modal probe.
+ *
+ * `querySelectorAll` is required rather than optional on purpose, but note the
+ * enforcement is weaker than it looks: `tsconfig.json` includes only `src`, and
+ * `tsconfig.contract-tests.json` does not list this module's suite, so no job
+ * typechecks the fake. A fake that omits it fails loudly at runtime instead.
+ */
+interface DocumentLike extends ModalDocumentLike {
+  addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
+  removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
+  visibilityState?: string;
+}
+
+interface StaleBundleCheckOptions {
+  /** Hash baked into the running bundle (default: __BUILD_HASH__). */
+  currentHash?: string;
+  /** Compatibility marker baked into the running bundle (default: CLIENT_COMPAT). */
+  currentCompat?: string;
+  /**
+   * Why a non-breaking update must not reload the tab right now, or null when
+   * it may. Default: the live page's visibility, sound and age.
+   */
+  softReloadHold?: () => SoftReloadHold | null;
+  /** Override fetch (for tests). Defaults to global fetch. */
+  fetch?: typeof globalThis.fetch;
+  /** Override window-level event target (default: window). */
+  eventTarget?: EventTargetLike;
+  /** Override document for visibilitychange (default: document). */
+  documentTarget?: DocumentLike;
+  /** Override setInterval (for tests). Default: globalThis.setInterval. */
+  setInterval?: (cb: () => void, ms: number) => unknown;
+  /** Override reload (for tests). Default: window.location.reload(). */
+  reload?: () => void;
+  /** Override clock (for tests). Default: Date.now. */
+  now?: () => number;
+  /**
+   * Called when an open modal holds off a reload: once when an episode
+   * starts, and once more if it survives `wedgeAfterDeferrals` triggers.
+   * The default reports only the suspected wedge to Sentry. A wedged tab (an overlay that never closes)
+   * would otherwise keep a stale bundle with no signal anywhere but the
+   * user's own console, which is the failure mode this suppression risks.
+   */
+  reportDeferral?: (report: DeferralReport) => void;
+  /**
+   * Deferral count at which an episode is reported a second time as a
+   * suspected wedge. Provisional: a genuine email-code wait produces a
+   * couple of triggers, while an overlay that never closes produces one per
+   * focus plus one per periodic tick for the whole session. Getting it wrong
+   * costs one extra Sentry event, never a user-visible reload.
+   */
+  wedgeAfterDeferrals?: number;
+  /**
+   * Minimum interval between checks. Multiple events within this window
+   * collapse to one fetch.
+   */
+  minIntervalMs?: number;
+  /**
+   * Wall-clock cadence of the periodic background check. Catches stuck
+   * tabs that never fire focus/visibilitychange (e.g. a tab pinned in
+   * the background of another window). Browsers throttle background
+   * setIntervals to ~1min minimum resolution, so values below that are
+   * effectively the same as 60_000ms.
+   */
+  periodicIntervalMs?: number;
+}
+
+/** One report when a deferral starts, one more if it looks wedged. */
+export interface DeferralReport {
+  readonly currentHash: string;
+  readonly deployedHash: string;
+  /** Which overlay held the reload off, for telemetry. */
+  readonly blockedBy: string;
+  /**
+   * Whether that overlay declared itself blocking or was silent. Every
+   * first-party overlay is declared, so 'undeclared' with a non-`cl-` label is
+   * a lint-gate escape, and 'blocking' with a wedge is a declared judgment to
+   * revisit. The two need different fixes, which is why both ride into Sentry.
+   */
+  readonly reloadPolicy: ReloadBlocker['policy'];
+  /** Triggers deferred so far in this episode, starting at 1. */
+  readonly deferrals: number;
+  readonly phase: 'started' | 'suspected-wedge';
+}
+
+const DEFAULT_MIN_INTERVAL_MS = 60_000;
+/** Wall-clock periodic check. 10min is plenty for stale-bundle detection
+ *  (we don't need second-level latency to reload an old bundle) and
+ *  respects browser background-tab throttling. */
+const DEFAULT_PERIODIC_INTERVAL_MS = 10 * 60_000;
+const DEFAULT_WEDGE_AFTER_DEFERRALS = 10;
+
+/**
+ * Consecutive unreadable marker reads for one deploy before it is treated as
+ * breaking. One or two are a blip. A path that keeps failing (a rewrite, a
+ * firewall rule, a broken deploy) would otherwise pin every tab to its old
+ * build, including across the breaking deploy the marker exists to announce.
+ */
+const MARKER_UNREADABLE_LIMIT = 3;
+
+/** What a deployed build means for a tab running an older one. */
+type DeployKind = 'breaking' | 'compatible';
+
+/**
+ * The marker file a deploy published: its compatibility marker, then the build
+ * it belongs to. Null when the body is not one. A deploy from before the marker
+ * existed has no such file, and a host that answers a missing file with the app
+ * shell returns HTML with status 200, so the shape is checked rather than
+ * trusted.
+ */
+function parseCompatMarker(body: string): { readonly compat: string; readonly build: string } | null {
+  const [compat, build, ...rest] = body.trim().split(/\s+/);
+  if (!compat || !build || rest.length > 0) return null;
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(compat) || !/^[A-Za-z0-9._-]{1,64}$/.test(build)) return null;
+  return { compat, build };
+}
+
+/**
+ * Install listeners that compare the running bundle's hash against the
+ * deployed hash and reload on mismatch. Three trigger paths:
+ *   1. window `focus` — user switches BACK to the tab
+ *   2. document `visibilitychange` — tab goes background→foreground
+ *      (fires for some background→foreground transitions that don't
+ *      raise window focus, e.g. tab activation within the same window)
+ *   3. periodic setInterval — catches tabs pinned in the background of
+ *      another window that never receive focus/visibilitychange. Browser
+ *      background throttling means actual cadence is ~1min minimum, but
+ *      that's fine for stale-bundle detection.
+ *
+ * All three paths funnel through a `check()` that's deduped by
+ * `minIntervalMs` — multiple triggers within the dedupe window collapse
+ * to one fetch.
+ *
+ * The `focus`-only design from PR #3499 missed background-tab users:
+ * one user (Sentry user_id user_3Cu7uZZJEeVSoUjv9SBn4BEv1...) hammered
+ * setPreferences at ~16 calls/min from 2026-04-30 04:20 UTC onward with
+ * a constant `actualSyncVersion: 20`, never refocusing the tab and so
+ * never triggering the reload. Adding visibilitychange + setInterval
+ * closes the gap.
+ *
+ * Returns a disposer function that clears the periodic timer (used in
+ * tests).
+ */
+export function installStaleBundleCheck(options: StaleBundleCheckOptions = {}): () => void {
+  const currentHash = options.currentHash ?? (typeof __BUILD_HASH__ !== 'undefined' ? __BUILD_HASH__ : 'dev');
+  const currentCompat = options.currentCompat ?? CLIENT_COMPAT;
+  const fetchImpl: typeof globalThis.fetch = options.fetch
+    ?? fetchBeforeWindowPatches
+    ?? ((...args) => globalThis.fetch(...args));
+  const eventTarget = options.eventTarget ?? window;
+  const documentTarget = options.documentTarget ?? (typeof document !== 'undefined' ? document : undefined);
+  const setIntervalImpl = options.setInterval ?? ((cb: () => void, ms: number) => globalThis.setInterval(cb, ms));
+  const reload = options.reload ?? (() => window.location.reload());
+  const now = options.now ?? Date.now;
+  const softReloadHold = options.softReloadHold ?? (() => currentSoftReloadHold(documentTarget));
+  // Only a suspected wedge reaches Sentry. A modal open when a deploy lands is
+  // the state this guard exists for, so reporting every episode start kept
+  // WORLDMONITOR-15X open with no failure behind it; the console line remains.
+  const reportDeferral = options.reportDeferral ?? ((report: DeferralReport) => {
+    if (report.phase !== 'suspected-wedge') return;
+    enqueueSentryCall((Sentry) => {
+      Sentry.captureMessage(
+        '[stale-bundle] reload still deferred, modal never closed',
+        {
+          level: 'warning',
+          tags: {
+            surface: 'stale-bundle',
+            current_hash: report.currentHash,
+            deployed_hash: report.deployedHash,
+            blocked_by: report.blockedBy,
+            reload_policy: report.reloadPolicy,
+            deferrals: String(report.deferrals),
+          },
+        },
+      );
+    });
+  });
+  const wedgeAfterDeferrals = options.wedgeAfterDeferrals ?? DEFAULT_WEDGE_AFTER_DEFERRALS;
+  const minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
+  const periodicIntervalMs = options.periodicIntervalMs ?? DEFAULT_PERIODIC_INTERVAL_MS;
+
+  // 'dev' marker means we're running a local build that didn't get a real
+  // SHA injected. Skip the check entirely in that case — comparing 'dev'
+  // against any deployed SHA would force-reload every dev tab on focus.
+  if (currentHash === 'dev') {
+    return () => {};
+  }
+
+  let lastCheckedAt = 0;
+  let inflight = false;
+  /**
+   * The deployed hash a reload is owed to. Null while the bundle is believed
+   * current. Non-null makes `lastCheckedAt` and `inflight` unreachable, because
+   * `check()` returns before consulting them.
+   */
+  let pendingReload: string | null = null;
+  /** Triggers deferred in the current episode. Reset when a reload lands. */
+  let deferrals = 0;
+  /**
+   * The last deployed hash whose marker was read, with the answer. A deploy's
+   * marker cannot change, and the marker file names its build, so a tab that
+   * stays on an older compatible build asks for it once, not on every trigger.
+   */
+  let classified: { readonly hash: string; readonly kind: DeployKind } | null = null;
+  /** Consecutive unreadable marker reads for one deployed hash. */
+  let unreadable: { readonly hash: string; readonly count: number } | null = null;
+
+  /**
+   * Reload now, or remember the debt and return while a modal is on screen.
+   *
+   * The probe belongs here, at the irreversible action, and not at the top of
+   * `check()`: reading the DOM when the hash answer arrives rather than when the
+   * trigger fired is what catches a modal that mounts mid-fetch. A guard before
+   * the fetch would let that one through — the original bug wearing a guard.
+   *
+   * No document at all means there is no modal to protect, so it reloads. PR
+   * #3466's safety property wins that tie.
+   */
+  const reloadOrDefer = (deployedHash: string): void => {
+    const blocker = documentTarget ? findReloadBlockingModal(documentTarget) : null;
+    if (blocker !== null) {
+      deferrals += 1;
+      // Two reports per episode at most: one naming the overlay, and one if
+      // the overlay outlasts any plausible email-code wait.
+      const phase = pendingReload === null
+        ? 'started'
+        : deferrals === wedgeAfterDeferrals
+          ? 'suspected-wedge'
+          : null;
+      if (phase !== null) {
+        // eslint-disable-next-line no-console
+        console.warn('[stale-bundle] reload deferred, modal open:', blocker.label, currentHash, '→', deployedHash);
+        reportDeferral({
+          currentHash,
+          deployedHash,
+          blockedBy: blocker.label,
+          reloadPolicy: blocker.policy,
+          deferrals,
+          phase,
+        });
+      }
+      pendingReload = deployedHash;
+      return;
+    }
+    pendingReload = null;
+    deferrals = 0;
+    // eslint-disable-next-line no-console
+    console.warn('[stale-bundle] reload:', currentHash, '→', deployedHash);
+    markPageUnloading();
+    reload();
+  };
+
+  /**
+   * Apply a deploy the running bundle is still compatible with, if doing so
+   * costs the viewer nothing. Otherwise do nothing at all: no debt is recorded,
+   * so a later trigger on a visible tab cannot pay it. The next check asks the
+   * same question again.
+   */
+  const reloadIfQuiet = (deployedHash: string): void => {
+    if (softReloadHold() !== null) return;
+    if (documentTarget && findReloadBlockingModal(documentTarget) !== null) return;
+    // eslint-disable-next-line no-console
+    console.warn('[stale-bundle] quiet reload:', currentHash, '→', deployedHash);
+    markPageUnloading();
+    reload();
+  };
+
+  /**
+   * Read the marker of `deployedHash`. Two outcomes say nothing about that
+   * deploy and are kept apart because they mean different things:
+   *
+   *   'unreadable'   the read failed (network, server error).
+   *   'other-build'  the marker was answered by another build. The hash and
+   *                  the marker are two requests, so a deploy landing between
+   *                  them, or two edges disagreeing while one propagates,
+   *                  would otherwise file one build's marker under the
+   *                  other's hash, and the cache below would keep it.
+   */
+  const readDeployKind = async (deployedHash: string, t: number): Promise<DeployKind | 'unreadable' | 'other-build'> => {
+    try {
+      const res = await fetchImpl(`/client-compat.txt?t=${t}`, { cache: 'no-store' });
+      // The deploy publishes no marker: a build from before it existed.
+      if (res.status === 404) return 'breaking';
+      if (!res.ok) return 'unreadable';
+      const marker = parseCompatMarker(await res.text());
+      if (marker === null) return 'breaking';
+      if (marker.build !== deployedHash) return 'other-build';
+      return marker.compat === currentCompat ? 'compatible' : 'breaking';
+    } catch {
+      return 'unreadable';
+    }
+  };
+
+  /**
+   * What the deployed build means for this tab. Null means "could not tell
+   * yet": a network failure or a server error says nothing about the deploy,
+   * and reloading on it would bring back a reload per blip. It stops being a
+   * blip at MARKER_UNREADABLE_LIMIT consecutive failures for the same deploy.
+   */
+  const classifyDeploy = async (deployedHash: string, t: number): Promise<DeployKind | null> => {
+    if (classified?.hash === deployedHash) return classified.kind;
+    let kind = await readDeployKind(deployedHash, t);
+    // Not a failure and not an answer: neither counted nor cached. The servers
+    // are mid-deploy, and the next check reads both files again.
+    if (kind === 'other-build') return null;
+    if (kind === 'unreadable') {
+      const count = unreadable?.hash === deployedHash ? unreadable.count + 1 : 1;
+      unreadable = { hash: deployedHash, count };
+      if (count < MARKER_UNREADABLE_LIMIT) return null;
+      kind = 'breaking';
+    }
+    unreadable = null;
+    classified = { hash: deployedHash, kind };
+    return kind;
+  };
+
+  const check = async (): Promise<void> => {
+    // Treat a mismatch as terminal: retry the reload against the live DOM
+    // instead of re-asking the network, bypassing the dedupe window (that
+    // window rate-limits fetches, and this path makes none).
+    //
+    // One case makes the premise false: a rollback to exactly `currentHash`
+    // while a reload is pending. The cost is a single redundant reload onto
+    // the bundle already running, so re-verifying every trigger would buy
+    // nothing but requests.
+    if (pendingReload !== null) {
+      reloadOrDefer(pendingReload);
+      return;
+    }
+
+    const t = now();
+    if (t - lastCheckedAt < minIntervalMs) return;
+    if (inflight) return;
+    lastCheckedAt = t;
+    inflight = true;
+    let deployedHash: string | null = null;
+    let kind: DeployKind | null = null;
+    try {
+      // Cache-bust to defeat any intermediate proxy that might serve a
+      // stale build-hash.txt (the file itself is emitted with the deploy).
+      const res = await fetchImpl(`/build-hash.txt?t=${t}`, { cache: 'no-store' });
+      if (res.ok) deployedHash = (await res.text()).trim();
+      if (deployedHash && deployedHash !== 'dev' && deployedHash !== currentHash) {
+        kind = await classifyDeploy(deployedHash, t);
+      }
+    } catch {
+      // Offline, or a network error from fetch/res.text() — silently skip.
+      // A non-OK response never throws; it leaves `deployedHash` null and
+      // exits below. Either way the next trigger retries.
+    } finally {
+      inflight = false;
+    }
+    // Decided outside the catch, so a throw from the modal probe surfaces to
+    // Sentry instead of being misfiled as an offline blip.
+    if (!deployedHash || kind === null) return;
+    if (kind === 'breaking') reloadOrDefer(deployedHash);
+    else reloadIfQuiet(deployedHash);
+  };
+
+  const focusHandler: EventListener = () => {
+    void check();
+  };
+  eventTarget.addEventListener('focus', focusHandler);
+
+  // visibilitychange fires when the tab becomes visible again. We only
+  // want to trigger on the visible side (not on hide), so gate with the
+  // documentTarget's visibilityState. Closure references documentTarget so
+  // the predicate uses the live state at fire time, not at install time.
+  const visibilityHandler: EventListener = documentTarget
+    ? () => {
+        if (documentTarget.visibilityState === 'visible') void check();
+      }
+    : () => {};
+  if (documentTarget) {
+    documentTarget.addEventListener('visibilitychange', visibilityHandler);
+  }
+
+  // Periodic safety net for background tabs that never receive
+  // focus/visibilitychange (e.g. pinned in a background window).
+  const intervalHandle = setIntervalImpl(() => void check(), periodicIntervalMs);
+
+  return () => {
+    // Full cleanup. Production currently calls installStaleBundleCheck
+    // exactly once at boot, but a complete disposer protects against
+    // future hot-reload / test-helper reuse where double-install would
+    // otherwise leave orphaned listeners firing against stale targets.
+    eventTarget.removeEventListener('focus', focusHandler);
+    if (documentTarget) {
+      documentTarget.removeEventListener('visibilitychange', visibilityHandler);
+    }
+    if (intervalHandle && typeof clearInterval === 'function') {
+      clearInterval(intervalHandle as unknown as ReturnType<typeof setInterval>);
+    }
+  };
+}

@@ -1,0 +1,141 @@
+/**
+ * Operator URL revocation for the news digest (#7084).
+ *
+ * This lives in `_shared` rather than beside the digest handler because the
+ * suppression set is NOT a property of one endpoint — it is a property of the
+ * digest CONTENT, and the content is read from `news:digest:v1:*` by several
+ * handlers. Shipping the filter only inside list-feed-digest meant an operator
+ * who revoked a retracted story still saw it published for six hours by
+ * get-country-intel-brief (which caches its own output) and fed into the chat
+ * analyst's prompt. Every reader of that key must go through here.
+ *
+ * Operator invalidation:
+ *   SADD news:digest:revoked-urls:v1 <url>
+ * That alone is sufficient for anything served from Redis — suppression
+ * happens on read. Deleting news:digest:v1:<variant>:<lang> and
+ * news:digest:lastgood:v1:<variant>:<lang> additionally forces a rebuild.
+ *
+ * NOTE for responders: the digest endpoint is CDN-cached, so an SADD does not
+ * evict copies already in shared caches. See the purge note in
+ * server/worldmonitor/news/v1/_lastgood.ts.
+ *
+ * Each instance keeps a successful read for REVOCATION_MEMO_TTL_MS, so a new
+ * SADD reaches every serving path within that many seconds.
+ *
+ * Matching is exact string equality on `item.link`; normalize the URL the way
+ * the feed emits it (scheme, trailing slash, and query string all count).
+ */
+import { isRedisConfigured, runRedisPipeline } from './redis';
+
+/** Versioned, narrow revocation set: exact item URLs suppressed at SERVE time. */
+export const REVOKED_URLS_KEY = 'news:digest:revoked-urls:v1';
+
+/** Result of reading the revocation set: an empty set is not a failed read. */
+export interface RevocationRead {
+  /** Shared between callers on this instance: never mutate it. */
+  urls: ReadonlySet<string>;
+  /** False when the set could not be read at all — suppression is fail-open but not silent. */
+  readable: boolean;
+}
+
+/**
+ * Filter items by the revocation set. Shared by every serving path so a
+ * revoked URL disappears from all of them at once.
+ */
+export function filterRevokedUrls<T extends { link?: unknown }>(
+  items: readonly T[],
+  revokedUrls: ReadonlySet<string>,
+): { kept: T[]; dropped: number } {
+  // `Array.isArray` guard: these bodies come back from Redis, where a
+  // malformed or round-tripped bucket can be an object rather than an array.
+  // Throwing here would abort the whole serving tier.
+  if (!Array.isArray(items)) return { kept: [], dropped: 0 };
+  if (revokedUrls.size === 0) return { kept: [...items], dropped: 0 };
+  // `item?.` matters: a malformed items array can carry null entries. Keep
+  // them (they carry no link to revoke) rather than throwing.
+  const kept = items.filter(
+    (item) => typeof item?.link !== 'string' || !revokedUrls.has(item.link),
+  );
+  return { kept, dropped: items.length - kept.length };
+}
+
+/**
+ * Read the operator revocation set.
+ *
+ * Three outcomes, deliberately distinguished:
+ *  - sidecar / no Redis configured -> empty set, `readable: true`. There is no
+ *    revocation store in that deployment, so an empty view is the COMPLETE
+ *    truth. Reporting it as unreadable made callers fail closed and blank the
+ *    endpoint on a preview deploy or a local dev run.
+ *  - Redis reachable -> the set, `readable: true`.
+ *  - Redis errored or timed out -> empty set, `readable: false`. Callers must
+ *    fail CLOSED on this one: a suppression control that cannot be read must
+ *    not be assumed empty.
+ */
+export async function readRevokedUrlSet(opts: { fresh?: boolean } = {}): Promise<RevocationRead> {
+  if (process.env.LOCAL_API_MODE === 'tauri-sidecar') {
+    return { urls: new Set(), readable: true };
+  }
+  if (!isRedisConfigured()) {
+    return { urls: new Set(), readable: true };
+  }
+  // A caller that stores what it builds from this set for longer than the
+  // memo window reads Redis directly.
+  if (opts.fresh) return readFromRedis();
+  const now = Date.now();
+  if (memo && memo.expiresAt > now) return memo.read;
+  // Join a read only while it is younger than the window: with a long
+  // REDIS_PIPELINE_TIMEOUT_MS a read can stay pending past it.
+  if (pending && now - pending.startedAt < REVOCATION_MEMO_TTL_MS) return pending.read;
+  const generation = memoGeneration;
+  // The window starts when the read starts, so a slow reply cannot stretch
+  // how old a reused set may be.
+  const startedAt = now;
+  const read = readFromRedis().then((result) => {
+    // A failed read is not kept: the next request retries rather than
+    // failing closed for the whole window. Neither is a read that outlived a
+    // reset, nor one older than the set already kept.
+    if (result.readable && generation === memoGeneration && (!memo || memo.startedAt < startedAt)) {
+      memo = { read: result, startedAt, expiresAt: startedAt + REVOCATION_MEMO_TTL_MS };
+    }
+    return result;
+  }).finally(() => {
+    if (pending?.read === read) pending = null;
+  });
+  pending = { read, startedAt };
+  return read;
+}
+
+/**
+ * How long one instance reuses a successful read. Every news serving path
+ * reads this set (about 8.3M SMEMBERS a week, nearly all from
+ * list-source-items), while operators SADD to it rarely.
+ */
+export const REVOCATION_MEMO_TTL_MS = 10_000;
+
+let memo: { read: RevocationRead; startedAt: number; expiresAt: number } | null = null;
+// Concurrent callers on one instance share a single SMEMBERS.
+let pending: { read: Promise<RevocationRead>; startedAt: number } | null = null;
+let memoGeneration = 0;
+
+export function __resetRevocationMemoForTest(): void {
+  memo = null;
+  pending = null;
+  memoGeneration += 1;
+}
+
+async function readFromRedis(): Promise<RevocationRead> {
+  try {
+    const results = await runRedisPipeline([['SMEMBERS', REVOKED_URLS_KEY]]);
+    const entry = results[0];
+    if (!entry || entry.error || !Array.isArray(entry.result)) {
+      return { urls: new Set(), readable: false };
+    }
+    return {
+      urls: new Set(entry.result.filter((value): value is string => typeof value === 'string')),
+      readable: true,
+    };
+  } catch {
+    return { urls: new Set(), readable: false };
+  }
+}

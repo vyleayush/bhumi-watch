@@ -1,0 +1,89 @@
+---
+title: "Architecture and Design Philosophy"
+sidebarTitle: "Design Philosophy"
+description: "Design principles, intelligence tradecraft and algorithmic decisions behind World Monitor: how the map-first dashboard is engineered, and why."
+---
+
+> **Looking for the system reference?** See [`ARCHITECTURE.md`](https://github.com/koala73/worldmonitor/blob/main/ARCHITECTURE.md) for deployment topology, directory layout, caching layers, CI/CD, and contributor how-to guides.
+
+## Topics
+
+This guide is split into focused pages so each one fits an agent's context window. The principles, philosophy and news-grounding sections stay on this page.
+
+| Page | Covers |
+|---|---|
+| [Internationalization and Search Indexing](/architecture-topics/i18n-search-indexing) | How World Monitor separates application localization from indexable localized documents: lang parameters, canonicals, hreflang clusters, sitemap alternates and prerendered landing pages. |
+| [Analysis Tradecraft and Frontend Design](/architecture-topics/analysis-and-frontend-design) | Intelligence analysis tradecraft, algorithmic design decisions and the vanilla TypeScript architecture behind the World Monitor dashboard, including discriminated unions and panel event delegation. |
+| [API Contracts, Bootstrap and Polling](/architecture-topics/api-contracts-and-bootstrap) | How World Monitor defines proto-first API contracts, hydrates the dashboard from one bootstrap payload, and refreshes data with the adaptive SmartPollLoop. |
+| [Seed Pipeline and Edge Functions](/architecture-topics/seed-pipeline-and-edge) | The Railway seed data pipeline, per-domain edge function architecture, cold-start optimization and single-deployment variant consolidation in World Monitor. |
+| [Real-Time Systems, Maps and Performance](/architecture-topics/realtime-maps-and-performance) | AIS relay backpressure, ONNX capability detection, map overlays, conditional data loading, web worker analysis, virtual scrolling, cross-module data flow and the refresh intervals World Monitor uses. |
+| [Caching and Bandwidth](/architecture-topics/caching-and-bandwidth) | Vercel CDN headers, circuit breakers, Brotli pre-compression, relay compression, request deduplication, polling intervals and the multi-tier caching architecture of World Monitor. |
+| [Reliability, Health and Freshness](/architecture-topics/reliability-and-health) | Error tracking, circuit breakers, graceful degradation, system health indicators, data freshness levels and service status monitoring in World Monitor. |
+
+---
+
+## Design Principles
+
+| Principle | Implementation |
+|---|---|
+| **Speed over perfection** | Keyword classifier is instant; LLM refines asynchronously. Users never wait. |
+| **Assume failure** | Per-feed circuit breakers with 5-minute cooldowns. AI fallback chain: Ollama (local) → OpenRouter → browser-side T5. Redis cache failures degrade to in-memory fallback with stale-on-error. Negative caching (5-minute backoff after upstream failures) prevents hammering downed APIs. Every edge function returns stale cached data when upstream APIs are down. **Cache stampede prevention** — `cachedFetchJson` uses an in-flight promise map to coalesce concurrent cache misses into a single upstream fetch: the first request creates and registers a Promise, all concurrent requests for the same key await that same Promise rather than independently hitting the upstream. Rate-sensitive APIs (Yahoo Finance) use staggered sequential requests with 150ms inter-request delays to avoid 429 throttling. UCDP conflict data uses automatic version discovery (probing multiple API versions in parallel), discovered-version caching (1-hour TTL), and stale-on-error fallback. |
+| **Show what you can't see** | Intelligence gap tracker explicitly reports data source outages rather than silently hiding them. |
+| **Browser-first compute where appropriate** | Clustering, local ML, geolocation, surge detection, and offline fallbacks run client-side. Server-authoritative APIs publish CII/CRI scores, briefs, forecasts, MCP tools, and cached operational data with documented methodology and provenance. |
+| **Local-first geolocation** | Country detection uses browser-side ray-casting against GeoJSON polygons rather than network reverse-geocoding. Sub-millisecond response, zero API dependency, works offline. Network geocoding is a fallback, not the primary path. |
+| **Multi-signal correlation** | No single data source is trusted alone. Focal points require convergence across news + military + markets + protests before escalating to critical. |
+| **Geopolitical grounding** | Hard-coded conflict zones, baseline country risk, and strategic chokepoints prevent statistical noise from generating false alerts in low-data regions. |
+| **Defense in depth** | CORS origin allowlist, domain-allowlisted RSS proxy, server-side API key isolation, token-authenticated desktop sidecar, input sanitization with output encoding, IP rate limiting on AI endpoints. |
+| **Cache everything, trust nothing** | Three-tier caching (in-memory → Redis → upstream) with versioned cache keys and stale-on-error fallback. Every API response includes `X-Cache` header for debugging. CDN layer (`s-maxage`) absorbs repeated requests before they reach edge functions. |
+| **Bandwidth efficiency** | Gzip compression on all relay responses (80% reduction). Content-hash static assets with 1-year immutable cache. Staggered polling intervals prevent synchronized API storms. Animations and polling pause on hidden tabs. |
+| **Baseline-aware alerting** | Trending keyword detection uses rolling 2-hour windows against 7-day baselines with per-term spike multipliers, cooldowns, and source diversity requirements — surfacing genuine surges while suppressing noise. |
+| **Contract-first APIs** | Every domain intelligence endpoint starts as a `.proto` definition with field validation, HTTP annotations, and examples. Code generation produces typed TypeScript clients and servers, eliminating schema drift. Operational endpoints (auth, billing, MCP, health, bootstrap, notifications, user workflows) remain hand-written under `api/`. Breaking changes to contract APIs are caught automatically at CI time. |
+| **Run anywhere** | The same codebase produces the published specialized variants from a single Vercel deployment and deploys to Vercel (web), Railway (relay), Tauri (desktop), and PWA (installable). Desktop sidecar mirrors all cloud API handlers locally. Service worker caches map tiles for offline use while keeping intelligence data always-fresh (NetworkOnly). |
+| **Graceful degradation** | Every feature degrades gracefully when dependencies are unavailable. Missing API keys skip the associated data source — they don't crash the app. Failed upstream APIs serve stale cached data. Browser-side ML works without any server. The dashboard is useful with zero API keys configured (static layers, map, ML models all work offline). |
+| **Multi-source corroboration** | Composite intelligence products combine independent sources to reduce single-source bias. Protest data merges ACLED + GDELT with Haversine deduplication. Country risk blends news velocity + military activity + unrest events + baseline risk. Disaster data merges USGS + GDACS + NASA EONET on a 0.1° geographic grid. |
+| **No framework overhead** | Vanilla TypeScript with direct DOM manipulation, event delegation, and custom `Panel` and `WindowedList` classes. No virtual DOM diffing, no framework runtime, no adapter libraries. The entire application shell weighs less than React's runtime. Browser standards (Web Workers, IndexedDB, Intersection Observer, ResizeObserver, CustomEvent) serve as the reactivity and component model. |
+| **Type-safe data flow** | Discriminated union markers (`_kind` field), proto-generated typed clients/servers, and exhaustive `switch` matching ensure compile-time safety across marker types, service domains, and map layers. Adding a new data type produces compiler errors at every unhandled site. |
+
+---
+
+## Design Philosophy
+
+**Information density over aesthetics.** Every pixel should convey signal. The dark interface minimizes eye strain during extended monitoring sessions. Panels are collapsible, draggable, and hideable—customize to show only what matters.
+
+**Authority matters.** Not all sources are equal. Wire services and official government channels are prioritized over aggregators and blogs. When multiple sources report the same story, the most authoritative source is displayed as primary.
+
+**Correlation over accumulation.** Raw news feeds are noise. The value is in clustering related stories, detecting velocity changes, and identifying cross-source patterns. A single "Broadcom +2.5% explained by AI chip news" signal is more valuable than showing both data points separately.
+
+**Signal, not noise.** Deduplication is aggressive. The same market move doesn't generate repeated alerts. Signals include confidence scores so you can prioritize attention. Alert fatigue is the enemy of situational awareness.
+
+**Knowledge-first matching.** Simple keyword matching produces false positives. The entity knowledge base understands that AVGO is Broadcom, that Broadcom competes with Nvidia, and that both are in semiconductors. This semantic layer transforms naive string matching into intelligent correlation.
+
+**Fail gracefully.** External APIs are unreliable. Circuit breakers prevent cascading failures. Cached data displays during outages. The status panel shows exactly what's working and what isn't—no silent failures.
+
+**Local-first.** No accounts, no cloud sync. All preferences and history stored locally. The only network traffic is fetching public data. Your monitoring configuration is yours alone.
+
+**Compute where it matters.** CPU-intensive operations (clustering, correlation) run in Web Workers to keep the UI responsive. The main thread handles only rendering and user interaction.
+
+---
+
+## News Grounding Pipeline
+
+Every LLM-adjacent surface that consumes news (brief magazine description card, brief whyMatters analyst blurb, dashboard News summary, email digest, notification relay, MCP world-brief tool) grounds on the article's cleaned RSS description so the model paraphrases what the article actually says instead of filling headline role-labels from its parametric priors.
+
+```
+RSS <description>/<content:encoded>/<summary>/<content>
+  └─► parser (list-feed-digest.ts): strip HTML, decode entities, clip 400,
+      reject <40 chars / dup-of-headline
+      └─► story:track:v1.description  (HSET additive, empty → absent)
+          └─► NewsItem.snippet        (proto field 12)
+              ├─► brief adapter → buildStoryDescriptionPrompt `Context: <body>`
+              ├─► brief whyMatters → buildWhyMattersUserPrompt `description` field
+              ├─► SummarizeArticleRequest.bodies → buildArticlePrompts `    Context:`
+              ├─► client NewsItem.snippet → NewsPanel render + summarizeHeadlines bodies
+              ├─► BreakingAlert.description → /api/notify payload.description
+              │     └─► relay formatMessage (NOTIFY_RELAY_INCLUDE_SNIPPET-gated)
+              ├─► email digest: snippet line under each headline
+              └─► MCP world-brief: bodies[] paired with headlines[]
+```
+
+Fallback rule everywhere: empty description → consumer behavior is byte-identical to headline-only. No regression path. The notification-relay audit (`tests/notification-relay-payload-audit.test.mjs`) enforces that RSS-origin producers set `payload.description` and domain-origin producers do not.

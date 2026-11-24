@@ -1,0 +1,18 @@
+export const WTO_MEMBER_CODES: Record<string, string> = {
+  '840': 'United States',
+  '156': 'China',
+  '276': 'Germany',
+  '392': 'Japan',
+  '826': 'United Kingdom',
+  '250': 'France',
+  '356': 'India',
+  '643': 'Russia',
+  '076': 'Brazil',
+  '410': 'South Korea',
+  '036': 'Australia',
+  '124': 'Canada',
+  '484': 'Mexico',
+  '380': 'Italy',
+  '528': 'Netherlands',
+  '000': 'World',
+};
