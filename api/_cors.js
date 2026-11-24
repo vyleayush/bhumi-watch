@@ -156,6 +156,7 @@ function isAllowedOrigin(origin) {
     || ORIGIN_ENCODER.encode(origin).byteLength > MAX_ORIGIN_BYTES) return false;
   if (isWorldMonitorGoogleTranslateOrigin(origin)) return true;
   const candidate = originForAllowlistMatch(origin);
+  if (origin.startsWith('https://') && origin === process.env.WM_DEPLOYMENT_ORIGIN) return true;
   if (isOwnPreviewDeploymentOrigin(candidate)) return true;
   return ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(candidate));
 }

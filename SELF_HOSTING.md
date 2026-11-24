@@ -2,6 +2,28 @@
 
 Run the full World Monitor stack locally with Docker/Podman.
 
+## Vercel Hobby dashboard
+
+The Hobby profile publishes the dashboard and its startup, session, RSS, news, markets, conflict, economics, climate, and earthquake APIs. The function limit leaves MCP, premium integrations, and other API-backed panels outside this profile. Seeded datasets need a Redis database and a worker or scheduled seed job to refresh them.
+
+Use Node.js 24 and run the following from a committed checkout with dependencies installed.
+
+```bash
+npm ci
+node scripts/stage-vercel-hobby.mjs
+```
+
+Change to the temporary workspace printed by the script. Link it to your Vercel Hobby project, set these production environment variables in the project, then run `npx vercel deploy --prod` from that workspace.
+
+| Variable | Value |
+| --- | --- |
+| `WM_DEPLOYMENT_ORIGIN` | The exact HTTPS production origin with no trailing slash |
+| `WM_SESSION_SECRET` | A server-only random string of at least 32 characters |
+| `UPSTASH_REDIS_REST_URL` | Redis REST URL from your Upstash database |
+| `UPSTASH_REDIS_REST_TOKEN` | Read/write Redis REST token |
+
+Run the staging script again for each commit you want to deploy. A standard Git-triggered Vercel build uses the complete API and requires a plan that supports it.
+
 ## 📋 Prerequisites
 
 - **Docker** or **Podman** (rootless works fine)
