@@ -1,3 +1,4 @@
+import { bhumiWatchDashboardPath, isBhumiWatchHost } from '@/config/variant';
 import { readChunkModule } from '@/bootstrap/chunk-reload';
 import { clearTelegramIntelCache } from '@/services/telegram-intel';
 import { subscribeRuntimeConfig } from '@/services/runtime-config';
@@ -1304,7 +1305,9 @@ export class PanelLayoutManager implements AppModule {
         const inIframe = window.self !== window.top;
         return variants.map(({ key, icon, label }) => {
           const active = SITE_VARIANT === key;
-          const href = variantSwitcherHref(key, SITE_VARIANT, local);
+          const href = isBhumiWatchHost(location.hostname)
+            ? bhumiWatchDashboardPath(key)
+            : variantSwitcherHref(key, SITE_VARIANT, local);
           const target = !local && !active && inIframe ? 'target="_blank" rel="noopener"' : '';
           return `<a href="${href}" class="variant-option ${active ? 'active' : ''}" data-variant="${key}"
             title="${label}" aria-label="${label}" ${active ? 'aria-current="page"' : ''} ${target}>

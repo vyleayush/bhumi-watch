@@ -15,7 +15,7 @@ const dashboardEndpoints = new Set([
   'api/version.js',
   'api/wm-session.js',
   'api/batch/v1/[rpc].ts',
-  'api/climate/v1/[rpc].ts',
+  'api/supply-chain/v1/[rpc].ts',
   'api/conflict/v1/[rpc].ts',
   'api/economic/v1/[rpc].ts',
   'api/market/v1/[rpc].ts',
@@ -66,6 +66,11 @@ writeFileSync(join(stage, 'middleware-bundle.d.mts'),
   'export default function middleware(request: Request): Response | Promise<Response>;\n');
 writeFileSync(middlewarePath,
   "export { default } from './middleware-bundle.mjs';\n\n" + middlewareSource.slice(configStart));
+
+const vercelPath = join(stage, 'vercel.json');
+const vercel = JSON.parse(readFileSync(vercelPath, 'utf8'));
+vercel.buildCommand = 'VITE_BHUMI_WATCH=1 npx vite build';
+writeFileSync(vercelPath, JSON.stringify(vercel, null, 2) + '\n');
 
 appendFileSync(join(stage, '.vercelignore'), '\n/.env\n/.env.*\n/node_modules/\n/dist/\n');
 console.log(`Vercel Hobby workspace for ${commit}: ${stage}`);

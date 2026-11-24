@@ -1080,7 +1080,15 @@ export default defineConfig(({ mode, command }) => {
   if (isOfflineE2E) installE2eOutboundFetchGuard();
   const isDesktopBuild = process.env.VITE_DESKTOP_RUNTIME === '1';
   const activeVariant = process.env.VITE_VARIANT || 'full';
-  const activeMeta = VARIANT_META[activeVariant] || VARIANT_META.full;
+  const activeMeta = process.env.VITE_BHUMI_WATCH === '1'
+    ? {
+        ...VARIANT_META.energy,
+        title: 'Bhumi Watch | Energy',
+        siteName: 'Bhumi Watch',
+        shortName: 'Bhumi Watch',
+        url: 'https://bhumiwatch.vercel.app/dashboard',
+      }
+    : VARIANT_META[activeVariant] || VARIANT_META.full;
   // Production deploys never publish maps; see shared/source-map-policy.ts.
   const emitPublicSourceMaps = shouldEmitPublicSourceMaps(process.env);
   // Sentry source-map upload. Gated on the token so a build without it (local,

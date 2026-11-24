@@ -64,6 +64,7 @@ import {
 } from '@/config';
 import { resolveNewsCategories, enabledNewsCategoryKeys } from '@/config/feed-resolution';
 import { VARIANT_META } from '@/config/variant-meta';
+import { bhumiWatchDashboardPath, isBhumiWatchHost, isSiteVariant } from '@/config/variant';
 import { isDesktopRuntime } from '@/services/runtime';
 import {
   getMissionPreset,
@@ -2143,7 +2144,9 @@ export class EventHandlerManager implements AppModule {
       return 'blocked';
     }
 
-    const target = options.href || VARIANT_META[variant]?.url;
+    const target = isBhumiWatchHost(window.location.hostname) && isSiteVariant(variant)
+      ? bhumiWatchDashboardPath(variant)
+      : options.href || VARIANT_META[variant]?.url;
     if (!target) return 'blocked';
     try {
       const parsed = new URL(target, window.location.href);
