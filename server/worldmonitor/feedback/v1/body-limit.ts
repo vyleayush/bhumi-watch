@@ -6,7 +6,7 @@
  * gateway's CORS headers, so a browser caller sees the real status.
  */
 
-import { readBoundedRequestBody, RequestBodyTooLargeError } from '../../../../api/mcp/bounded-body';
+import { readBoundedRequestBody, RequestBodyTooLargeError } from '../../../../api/mcp/_bounded-body';
 import { FEEDBACK_MAX_BODY_BYTES } from '../../../_shared/agent-feedback';
 import { getCorsHeaders } from '../../../cors';
 

@@ -172,6 +172,28 @@ describe('isAllowedOrigin — Vercel preview origins', () => {
     });
   });
 
+
+  it('trusts only the exact configured HTTPS deployment origin', () => {
+    const saved = process.env.WM_DEPLOYMENT_ORIGIN;
+    try {
+      process.env.WM_DEPLOYMENT_ORIGIN = 'https://dashboard-example.vercel.app';
+      const allowed = process.env.WM_DEPLOYMENT_ORIGIN;
+      assert.equal(isAllowedOrigin(allowed), true);
+      assert.equal(allowedByJsTwin(allowed), true);
+      for (const origin of [
+        'https://dashboard-example.vercel.app.example.org',
+        'https://other-dashboard.vercel.app',
+        'http://dashboard-example.vercel.app',
+      ]) {
+        assert.equal(isAllowedOrigin(origin), false);
+        assert.equal(allowedByJsTwin(origin), false);
+      }
+    } finally {
+      if (saved === undefined) delete process.env.WM_DEPLOYMENT_ORIGIN;
+      else process.env.WM_DEPLOYMENT_ORIGIN = saved;
+    }
+  });
+
   const ALLOWED = [
     ['apex production origin', 'https://worldmonitor.app'],
     ['production subdomain', 'https://tech.worldmonitor.app'],
