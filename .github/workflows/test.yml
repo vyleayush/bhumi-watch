@@ -592,7 +592,7 @@ jobs:
       - name: Upload data test timings
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: data-test-timings-${{ matrix.shard }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/data-test-timings.jsonl
@@ -735,7 +735,7 @@ jobs:
         # starts to chase the failure.
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openapi-capacity-${{ github.run_attempt }}
           path: ${{ runner.temp }}/openapi-capacity.json
@@ -769,7 +769,7 @@ jobs:
       - name: Upload data test timings
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: data-test-timings-built-output-${{ github.run_attempt }}
           path: ${{ runner.temp }}/data-test-timings.jsonl
@@ -1301,7 +1301,7 @@ jobs:
       - name: Upload ci-smoke Playwright artifacts
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-ci-smoke-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
@@ -1439,7 +1439,7 @@ jobs:
       - name: Upload prehydration Playwright artifacts
         if: ${{ !cancelled() && steps.prehydration.outcome != 'skipped' }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-prehydration-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
@@ -1465,7 +1465,7 @@ jobs:
       - name: Upload /pro gate Playwright artifacts
         if: ${{ !cancelled() && steps.pro-gates.outcome != 'skipped' }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-pro-gates-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
@@ -1487,7 +1487,7 @@ jobs:
       - name: Upload WebMCP Playwright artifacts
         if: ${{ !cancelled() && steps.webmcp.outcome != 'skipped' }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-webmcp-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
@@ -1503,7 +1503,7 @@ jobs:
       - name: Upload MCP Apps view Playwright artifacts
         if: ${{ !cancelled() && steps.plugin.outcome != 'skipped' }}
         continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-${{ matrix.part }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
