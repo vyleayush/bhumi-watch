@@ -1,1 +1,1 @@
-export * from './_bounded-body';
+export * from './_bounded-body.js';
