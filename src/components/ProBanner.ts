@@ -1,3 +1,4 @@
+import { isBhumiWatchHost } from '@/config/variant';
 import { trackGateHit, trackProBannerClick } from '@/services/analytics';
 import {
   onEntitlementChange,
@@ -214,6 +215,8 @@ function resolveEffectiveBannerPremium(): EffectiveBannerPremium {
 }
 
 export function showProBanner(container: HTMLElement): void {
+  if (import.meta.env.VITE_BHUMI_WATCH === '1' || isBhumiWatchHost(location.hostname)) return;
+
   // Cache container even on early-return paths so the entitlement-change
   // listener can re-mount on a downgrade. App.ts calls this once at init
   // regardless of premium state, so caching here covers both "initially
