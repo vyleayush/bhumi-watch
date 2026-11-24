@@ -992,7 +992,7 @@ const COMMODITY_MOBILE_MAP_LAYERS: MapLayers = {
 // See docs/internal/global-energy-flow-parity-and-surpass.md (not committed).
 // ============================================
 const ENERGY_PANELS: Record<string, PanelConfig> = {
-  map: { name: 'Energy Atlas Map', enabled: true, priority: 1 },
+  map: { name: 'Energy Map', enabled: true, priority: 1 },
   'energy-risk-overview': { name: 'Global Energy Risk Overview', enabled: true, priority: 1 },
   'grid-disruption-clock': { name: 'US States Grid Disruption Clock', enabled: false, priority: 2 },
   'chokepoint-strip': { name: 'Chokepoint Status', enabled: true, priority: 1 },
@@ -1226,7 +1226,7 @@ export const VARIANT_PANEL_OVERRIDES: Partial<Record<string, Partial<Record<stri
     insights:    { name: 'AI Commodity Insights' },
   },
   energy: {
-    map:         { name: 'Energy Atlas Map' },
+    map:         { name: 'Energy Map' },
     'live-news': { name: 'Energy Headlines' },
     insights:    { name: 'AI Energy Insights' },
   },
