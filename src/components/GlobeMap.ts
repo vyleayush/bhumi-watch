@@ -1,3 +1,4 @@
+import { renderUiIconSvg } from '@/utils/ui-icons';
 import { bindMapControlDisclosure } from './map-control-disclosure';
 /**
  * GlobeMap - 3D interactive globe using globe.gl
@@ -2343,13 +2344,14 @@ export class GlobeMap {
     setTrustedHtml(el, trustedHtml(`
       <span class="globe-beta-badge">BETA</span>
       <div class="zoom-controls">
-        <button class="map-btn zoom-in"    title="Zoom in" aria-label="Zoom in">+</button>
-        <button class="map-btn zoom-out"   title="Zoom out" aria-label="Zoom out">-</button>
-        <button class="map-btn zoom-reset" title="Reset view" aria-label="Reset view">&#8962;</button>
+        <button class="map-btn zoom-in"    title="Zoom in" aria-label="Zoom in">${renderUiIconSvg('plus', 15)}</button>
+        <button class="map-btn zoom-out"   title="Zoom out" aria-label="Zoom out">${renderUiIconSvg('minus', 15)}</button>
+        <button class="map-btn zoom-reset" title="Reset view" aria-label="Reset view">${renderUiIconSvg('reset', 15)}</button>
       </div>`, "legacy direct innerHTML migration"));
     this.container.appendChild(el);
     el.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
+      const target = e.target instanceof Element ? e.target.closest('button.map-btn') : null;
+      if (!target) return;
       if      (target.classList.contains('zoom-in'))    this.zoomInGlobe();
       else if (target.classList.contains('zoom-out'))   this.zoomOutGlobe();
       else if (target.classList.contains('zoom-reset')) this.setView(this.currentView);

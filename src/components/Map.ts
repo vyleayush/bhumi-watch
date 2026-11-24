@@ -1,3 +1,4 @@
+import { renderUiIconSvg } from '@/utils/ui-icons';
 import { bindMapControlDisclosure } from './map-control-disclosure';
 import { createTimeoutSignal } from '@/services/timeout-signal';
 import * as d3 from 'd3';
@@ -630,14 +631,14 @@ export class MapComponent {
     controls.className = 'map-controls';
     this.controlsEl = controls;
     setTrustedHtml(controls, trustedHtml(`
-      <button class="map-control-btn" data-action="zoom-in" aria-label="Zoom in">+</button>
-      <button class="map-control-btn" data-action="zoom-out" aria-label="Zoom out">−</button>
-      <button class="map-control-btn" data-action="reset" aria-label="Reset rotation">⟲</button>
+      <button class="map-control-btn" data-action="zoom-in" aria-label="Zoom in">${renderUiIconSvg('plus', 15)}</button>
+      <button class="map-control-btn" data-action="zoom-out" aria-label="Zoom out">${renderUiIconSvg('minus', 15)}</button>
+      <button class="map-control-btn" data-action="reset" aria-label="Reset rotation">${renderUiIconSvg('reset', 15)}</button>
     `, "legacy direct innerHTML migration"));
 
     controls.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      const action = target.dataset.action;
+      const button = e.target instanceof Element ? e.target.closest<HTMLButtonElement>('button[data-action]') : null;
+      const action = button?.dataset.action;
       if (action === 'zoom-in') this.zoomIn();
       else if (action === 'zoom-out') this.zoomOut();
       else if (action === 'reset') this.reset();

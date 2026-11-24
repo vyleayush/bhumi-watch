@@ -1,3 +1,4 @@
+import { renderUiIconSvg } from '@/utils/ui-icons';
 import { bindMapControlDisclosure } from './map-control-disclosure';
 import { MapDistanceControl } from './map-distance-control';
 import { createTimeoutSignal } from '@/services/timeout-signal';
@@ -6204,9 +6205,9 @@ export class DeckGLMap {
     controls.className = 'map-controls deckgl-controls';
     setTrustedHtml(controls, trustedHtml(`
       <div class="zoom-controls">
-        <button class="map-btn zoom-in" title="${t('components.deckgl.zoomIn')}" aria-label="${t('components.deckgl.zoomIn')}">+</button>
-        <button class="map-btn zoom-out" title="${t('components.deckgl.zoomOut')}" aria-label="${t('components.deckgl.zoomOut')}">-</button>
-        <button class="map-btn zoom-reset" title="${t('components.deckgl.resetView')}" aria-label="${t('components.deckgl.resetView')}">&#8962;</button>
+        <button class="map-btn zoom-in" title="${t('components.deckgl.zoomIn')}" aria-label="${t('components.deckgl.zoomIn')}">${renderUiIconSvg('plus', 15)}</button>
+        <button class="map-btn zoom-out" title="${t('components.deckgl.zoomOut')}" aria-label="${t('components.deckgl.zoomOut')}">${renderUiIconSvg('minus', 15)}</button>
+        <button class="map-btn zoom-reset" title="${t('components.deckgl.resetView')}" aria-label="${t('components.deckgl.resetView')}">${renderUiIconSvg('reset', 15)}</button>
       </div>
       <div class="view-selector">
         <select class="view-select" aria-label="${t('header.selectRegion')}">
@@ -6226,7 +6227,8 @@ export class DeckGLMap {
 
     // Bind events - use event delegation for reliability
     controls.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
+      const target = e.target instanceof Element ? e.target.closest('button.map-btn') : null;
+      if (!target) return;
       if (target.classList.contains('zoom-in')) this.zoomIn();
       else if (target.classList.contains('zoom-out')) this.zoomOut();
       else if (target.classList.contains('zoom-reset')) this.resetView();

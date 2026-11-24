@@ -31742,3 +31742,15 @@ body.map-width-resizing {
     min-height: 34px;
   }
 }
+
+.map-controls :is(.map-btn, .map-control-btn) {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.map-controls :is(.map-btn, .map-control-btn):focus-visible {
+  outline: 2px solid var(--bhumi-accent);
+  outline-offset: 1px;
+}
