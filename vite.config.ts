@@ -14,6 +14,7 @@ import { closeExternalProxyRules, installE2eOutboundFetchGuard } from './shared/
 import { removeSourceMaps, shouldEmitPublicSourceMaps, viteSourcemapSetting } from './shared/source-map-policy';
 import { appendChunkOwnership, chunkHasFirstPartyModule } from './shared/chunk-ownership';
 import { VARIANT_META, type VariantMeta } from './src/config/variant-meta';
+import { BHUMI_WATCH_ENERGY_META } from './src/config/bhumi-watch-meta';
 import { CLIENT_COMPAT } from './src/bootstrap/client-compat';
 import {
   WEB_DASHBOARD_VARIANTS,
@@ -1080,7 +1081,9 @@ export default defineConfig(({ mode, command }) => {
   if (isOfflineE2E) installE2eOutboundFetchGuard();
   const isDesktopBuild = process.env.VITE_DESKTOP_RUNTIME === '1';
   const activeVariant = process.env.VITE_VARIANT || 'full';
-  const activeMeta = VARIANT_META[activeVariant] || VARIANT_META.full;
+  const activeMeta = process.env.VITE_BHUMI_WATCH === '1'
+    ? BHUMI_WATCH_ENERGY_META
+    : VARIANT_META[activeVariant] || VARIANT_META.full;
   // Production deploys never publish maps; see shared/source-map-policy.ts.
   const emitPublicSourceMaps = shouldEmitPublicSourceMaps(process.env);
   // Sentry source-map upload. Gated on the token so a build without it (local,

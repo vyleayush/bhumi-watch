@@ -2619,6 +2619,20 @@
       ]
     },
     {
+      "host": "bhumiwatch.vercel.app",
+      "provider": "bhumiwatch.vercel.app",
+      "kind": "structured",
+      "observed": true,
+      "license": "Excluded: first-party, control-plane, UI, or rendering transport",
+      "attribution": "Excluded from the external-provider count: not an ingested upstream dataset.",
+      "status": "excluded",
+      "references": [
+        {
+          "path": "src/config/bhumi-watch-meta.ts"
+        }
+      ]
+    },
+    {
       "host": "bihus.info",
       "provider": "bihus.info",
       "kind": "feed",
@@ -17854,6 +17868,9 @@
       "attribution": "Credit www.eia.gov and link to the original feed publisher.",
       "status": "terms-review",
       "references": [
+        {
+          "path": "scripts/seed-economy.mjs"
+        },
         {
           "path": "scripts/seed-oil-trade-series.mjs"
         },

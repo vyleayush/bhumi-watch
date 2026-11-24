@@ -3252,7 +3252,7 @@ export class UnifiedSettings {
         <p class="mcp-agents-plan-note">
   ${signedIn
   ? 'Your free account includes access to every tool, with a daily usage allowance.'
-  : 'Sign in with your Bhumi-Watch account to access every tool with a daily usage allowance.'}
+  : 'Sign in with your Bhumi Watch account to access every tool with a daily usage allowance.'}
           <a ${LEGAL_LINK_ATTR} href="${escapeHtml(`${WEB_APP_ORIGIN}/pro`)}" target="_blank" rel="noopener noreferrer">Compare plans</a>
         </p>`;
 

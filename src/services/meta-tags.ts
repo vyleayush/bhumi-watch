@@ -1,5 +1,6 @@
-import { SITE_VARIANT } from '@/config/variant';
+import { bhumiWatchDashboardPath, isBhumiWatchHost, isSiteVariant, SITE_VARIANT } from '@/config/variant';
 import { VARIANT_META } from '@/config/variant-meta';
+import { BHUMI_WATCH_ENERGY_META } from '@/config/bhumi-watch-meta';
 import { getCanonicalApiOrigin } from '@/services/runtime';
 
 interface StoryMeta {
@@ -11,7 +12,16 @@ interface StoryMeta {
   type: 'ciianalysis' | 'crisisalert' | 'dailybrief' | 'marketfocus';
 }
 
-const variantMeta = VARIANT_META[SITE_VARIANT] ?? VARIANT_META.full;
+const defaultMeta = VARIANT_META[SITE_VARIANT] ?? VARIANT_META.full;
+const bhumiWatch = typeof window !== 'undefined' && isBhumiWatchHost(window.location?.hostname ?? '');
+const variantMeta = bhumiWatch && isSiteVariant(SITE_VARIANT)
+  ? SITE_VARIANT === 'energy' ? BHUMI_WATCH_ENERGY_META : {
+      ...defaultMeta,
+      title: VARIANT_META.full.title,
+      siteName: BHUMI_WATCH_ENERGY_META.siteName,
+      url: new URL(bhumiWatchDashboardPath(SITE_VARIANT), BHUMI_WATCH_ENERGY_META.url).href,
+    }
+  : defaultMeta;
 const CANONICAL_URL = variantMeta.url;
 const PUBLIC_ORIGIN = new URL(variantMeta.url).origin;
 const API_ORIGIN = getCanonicalApiOrigin();

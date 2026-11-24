@@ -64,6 +64,7 @@ import {
 } from '@/config';
 import { resolveNewsCategories, enabledNewsCategoryKeys } from '@/config/feed-resolution';
 import { VARIANT_META } from '@/config/variant-meta';
+import { bhumiWatchDashboardPath, isBhumiWatchHost, isSiteVariant } from '@/config/variant';
 import { isDesktopRuntime } from '@/services/runtime';
 import {
   getMissionPreset,
@@ -1004,6 +1005,7 @@ export class EventHandlerManager implements AppModule {
     this.renderMissionPresetControl();
 
     const shouldPrompt =
+      import.meta.env?.VITE_BHUMI_WATCH !== '1' &&
       !this.ctx.isMobile &&
       !window.location.search &&
       !loadStoredMissionPreset() &&
@@ -2080,12 +2082,13 @@ export class EventHandlerManager implements AppModule {
   }
 
   private setCopyLinkFeedback(button: HTMLElement | null, message: string): void {
-    if (!button) return;
-    const originalText = button.textContent ?? '';
-    button.textContent = message;
+    const label = button?.querySelector('.toolbar-label');
+    if (!button || !label) return;
+    const originalText = label.textContent ?? '';
+    label.textContent = message;
     button.classList.add('copied');
     window.setTimeout(() => {
-      button.textContent = originalText;
+      label.textContent = originalText;
       button.classList.remove('copied');
     }, 1500);
   }
@@ -2142,7 +2145,9 @@ export class EventHandlerManager implements AppModule {
       return 'blocked';
     }
 
-    const target = options.href || VARIANT_META[variant]?.url;
+    const target = isBhumiWatchHost(window.location.hostname) && isSiteVariant(variant)
+      ? bhumiWatchDashboardPath(variant)
+      : options.href || VARIANT_META[variant]?.url;
     if (!target) return 'blocked';
     try {
       const parsed = new URL(target, window.location.href);

@@ -34,7 +34,7 @@ describe('dashboard site links (#10461)', () => {
     for (const { href } of DASHBOARD_EXTERNAL_SITE_LINKS) {
       assert.ok(html.includes(`href="${href}"`), `missing ${href}`);
     }
-    assert.match(html, /aria-label="World Monitor site"/);
+    assert.match(html, /aria-label="Bhumi Watch site"/);
     assert.match(html, /class="dashboard-site-links-row"/);
   });
 

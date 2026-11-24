@@ -58,15 +58,16 @@
 
   /* Font stack */
   --font-mono: 'SF Mono', 'Monaco', 'Cascadia Code', 'Fira Code', 'DejaVu Sans Mono', 'Liberation Mono', monospace;
-  /* Base body font, controlled by font preference (mono vs system) */
-  --font-body-base: var(--font-mono);
+  --font-body-base: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --bhumi-accent: #a4e8c3;
+  --bhumi-selected: #20352c;
   /* Effective body font used throughout the app */
   --font-body: var(--font-body-base);
 }
 
 /* System font selection via data-font attribute (avoids inline style specificity issues with RTL) */
-[data-font="system"] {
-  --font-body-base: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+[data-font="mono"] {
+  --font-body-base: var(--font-mono);
 }
 
 [dir="rtl"] {
@@ -189,6 +190,8 @@
   --semantic-elevated-text: #92400e;
   --status-cached-text: #92400e;
   --green-text: #166534;
+  --bhumi-accent: #0f6546;
+  --bhumi-selected: #e1f3e9;
   --semantic-positive-text: #166534;
   --status-live-text: #166534;
   --semantic-low-text: #1e40af;
@@ -360,7 +363,7 @@ canvas,
   padding: 8px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  height: 40px;
+  min-height: 52px;
   flex-shrink: 0;
   /* Lift the header's stacking context above the content grid so its
      dropdown panels (Intelligence Findings, Pentagon Pizza, etc.) are not
@@ -379,77 +382,46 @@ canvas,
   gap: 10px;
 }
 
-/* Variant Switcher */
+/* Dashboard views */
 .variant-switcher {
   display: flex;
   align-items: center;
   gap: 2px;
-  background: var(--overlay-subtle);
+  padding: 3px;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 4px;
-  margin-right: 6px;
+  border-radius: 9px;
 }
 
 .variant-option {
-  display: flex;
+  display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
   text-decoration: none;
-  color: var(--text-dim);
-  font-size: calc(9px * var(--wm-panel-effective-scale, 1));
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--wm-panel-effective-scale, 1));
   font-weight: 600;
-  letter-spacing: 1px;
-  transition: all 0.25s ease;
-  cursor: pointer;
-}
-
-.variant-option .variant-icon {
-  font-size: calc(11px * var(--wm-panel-effective-scale, 1));
-  filter: grayscale(80%);
-  transition: filter 0.25s ease;
-}
-
-.variant-option .variant-label {
   white-space: nowrap;
+}
+
+.variant-icon {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .variant-option:hover {
   color: var(--text);
-}
-
-.variant-option:hover .variant-icon {
-  filter: grayscale(0%);
+  background: var(--surface-hover);
 }
 
 .variant-option.active {
-  color: var(--green-text, var(--green));
-  background: rgba(68, 255, 136, 0.1);
-  pointer-events: none;
-}
-
-
-.variant-option.active .variant-icon {
-  filter: grayscale(0%) drop-shadow(0 0 4px var(--green));
-}
-
-.variant-option[data-variant="tech"].active {
-  color: var(--semantic-info);
-  background: rgba(74, 158, 255, 0.1);
-}
-
-.variant-option[data-variant="tech"].active .variant-icon {
-  filter: grayscale(0%) drop-shadow(0 0 4px var(--semantic-info));
-}
-
-.variant-divider {
-  width: 1px;
-  height: 12px;
-  background: var(--border);
-  margin: 0 2px;
+  color: var(--bhumi-accent);
+  background: var(--bhumi-selected);
 }
 
 .mission-preset-mount {
@@ -664,32 +636,37 @@ canvas,
 
 .brand-lockup {
   display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.brand-mark {
+  flex: none;
+  display: block;
+}
+
+.brand-copy {
+  display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  line-height: 1.05;
+  gap: 2px;
 }
 
 .school-name {
-  margin-top: 3px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: calc(9px * var(--wm-panel-effective-scale, 1));
-  letter-spacing: 0.2px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .logo {
-  font-weight: bold;
-  font-size: calc(14px * var(--wm-panel-effective-scale, 1));
-  letter-spacing: 1px;
-  color: var(--accent);
-}
-
-.logo-mobile {
-  display: none;
-  font-weight: bold;
-  font-size: calc(14px * var(--wm-panel-effective-scale, 1));
-  letter-spacing: 2px;
-  color: var(--accent);
+  color: var(--text);
+  font-weight: 750;
+  font-size: calc(17px * var(--wm-panel-effective-scale, 1));
+  letter-spacing: -0.025em;
+  white-space: nowrap;
 }
 
 .version {
@@ -851,26 +828,6 @@ canvas,
   background: #f59e0b;
   border-radius: 8px;
   vertical-align: middle;
-}
-
-.credit-link {
-  font-size: calc(9px * var(--wm-panel-effective-scale, 1));
-  color: inherit;
-  opacity: 0.6;
-  font-weight: normal;
-  letter-spacing: 0.5px;
-  text-decoration: none;
-  transition: opacity 0.2s;
-}
-
-.credit-link:hover {
-  opacity: 1;
-  color: var(--accent);
-}
-
-/* Hide X logo on desktop, show text */
-.credit-link .x-logo {
-  display: none;
 }
 
 .status-indicator {
@@ -1097,46 +1054,49 @@ canvas,
   color: var(--text);
 }
 
-/* Progressive header disclosure — keep the core right-side actions (Search,
-   settings, and especially the Sign In cluster) fully on screen as usable
-   width shrinks: small laptops, split-screen, OS scaling (1920px @ 150% =
-   ~1280px CSS), and browsers with a vertical tab strip. With dashboard
-   labels visible, the single-row header wants ~1820px; these tiers keep the
-   rightmost account actions on screen below that width. Items are dropped
-   least-essential first; each is still reachable elsewhere (footer links,
-   the mobile hamburger menu, or the map's own controls). The full mobile
-   hamburger takes over at <=768px. !important mirrors the <=768 block below
-   (needed to beat the #missionPresetMount id rule in header.css). */
-@media (max-width: 1875px) {
-  /* redundant with footer/menu: X credit + GitHub icon */
-  .credit-link,
-  .github-link { display: none !important; }
-  .header .region-select { width: 110px; }
+/* Keep navigation and toolbar controls visible as the header gets narrower. */
+@media (max-width: 1750px) {
+  .header .github-link,
+  .header .version {
+    display: none;
+  }
+
+  .header .region-select {
+    width: 102px;
+  }
 }
-@media (max-width: 1730px) {
-  .version,
-  .fullscreen-btn { display: none !important; }
-}
-@media (max-width: 1630px) {
-  /* Link + Embed share .copy-link-btn */
-  .copy-link-btn { display: none !important; }
-}
-@media (max-width: 1500px) {
+
+@media (max-width: 1680px) {
   .pizzint-indicator { display: none !important; }
 }
+
+@media (min-width: 1391px) and (max-width: 1530px) {
+  .variant-option {
+    gap: 4px;
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+
+  .variant-icon svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1390px) {
+  .variant-option { padding-inline: 6px; }
+  .variant-option .variant-label { display: none; }
+}
+
+@media (max-width: 1200px) {
+  .header { padding-inline: 10px; }
+  .header-left, .header-right { gap: 6px; }
+  .header .region-select { width: 82px; }
+  .header .status-indicator { display: none; }
+}
+
 @media (max-width: 1075px) {
   .mission-preset-mount { display: none !important; }
-}
-@media (min-width: 981px) and (max-width: 1375px) {
-  .header { padding-inline: 8px; }
-  .header-left { gap: 6px; }
-  .header-right { gap: 6px; }
-  .header .search-btn { margin-right: 0; }
-  .header .region-select { width: 80px; }
-  .header .status-indicator,
-  .header .logo { display: none; }
-  .header .variant-option { padding: 2px 4px; letter-spacing: 0.5px; }
-  .header .variant-divider { margin: 0; }
 }
 
 .search-btn {
@@ -1842,14 +1802,13 @@ canvas,
     border-radius: 8px;
     background: transparent;
     color: var(--text-dim);
-    font: 600 calc(10px * var(--wm-panel-effective-scale, 1))/1 var(--font-mono, monospace);
+    font: 600 calc(10px * var(--wm-panel-effective-scale, 1))/1 var(--font-body);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
 
   .mobile-tab-icon {
-    font-size: calc(20px * var(--wm-panel-effective-scale, 1));
-    line-height: 1;
+    display: inline-flex;
   }
 
   .mobile-tab.active {
@@ -16128,7 +16087,6 @@ button.popup-link {
   .mission-preset-mount,
   .version,
   .beta-badge,
-  .credit-link,
   .github-link,
   .region-selector,
   .mobile-settings-btn {
@@ -16483,15 +16441,6 @@ button.popup-link {
 
   .pizzint-indicator {
     display: none !important;
-  }
-
-  /* Keep the school wordmark visible on small screens. */
-  .logo {
-    display: none;
-  }
-
-  .logo-mobile {
-    display: inline;
   }
 
   /* Mobile: hide "Global Situation" panel title */
@@ -29566,8 +29515,8 @@ body.map-width-resizing {
 }
 
 .dashboard-tab.active {
-  background: var(--surface-hover);
-  border-color: var(--green);
+  background: var(--bhumi-selected);
+  border-color: var(--border);
 }
 
 .dashboard-tab-label {
@@ -29591,7 +29540,7 @@ body.map-width-resizing {
 }
 
 .dashboard-tab.active .dashboard-tab-label {
-  color: var(--green-text, var(--green));
+  color: var(--bhumi-accent);
 }
 
 .dashboard-tab-close {
@@ -29625,17 +29574,21 @@ body.map-width-resizing {
 .dashboard-tab-options,
 .dashboard-tab-team,
 .dashboard-tab-focus {
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 5px;
-  color: var(--text-dim);
-  font-size: calc(14px * var(--wm-panel-effective-scale, 1));
-  line-height: 1;
-  padding: 4px 9px 6px;
-  margin: 0 0 4px 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 29px;
+  min-height: 28px;
+  margin-block-end: 3px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font: 600 calc(11px * var(--wm-panel-effective-scale, 1))/1 var(--font-body);
   cursor: pointer;
   flex-shrink: 0;
-  transition: color 0.15s, border-color 0.15s;
 }
 
 .dashboard-tab-add:hover,
@@ -29645,22 +29598,17 @@ body.map-width-resizing {
 .dashboard-tab-team[aria-expanded="true"],
 .dashboard-tab-focus:hover,
 .dashboard-tab-focus.active {
-  color: var(--green-text, var(--green));
-  border-color: var(--green);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
-.dashboard-tab-options {
-  margin-left: 2px;
+.dashboard-tab-close svg {
+  display: block;
 }
 
-/* A word, not a glyph: smaller type so it sits level with "+" and "▾". */
-.dashboard-tab-team,
-.dashboard-tab-focus {
-  margin-left: 2px;
-  padding: 5px 9px;
-  font-size: calc(11px * var(--wm-panel-effective-scale, 1));
-  font-family: inherit;
-  letter-spacing: 0.04em;
+.map-collapse-btn svg {
+  vertical-align: middle;
+  margin-inline-end: 4px;
 }
 
 /* Tab-cap locked notice. Body-anchored and fixed-positioned from the add
@@ -31704,4 +31652,105 @@ body.map-width-resizing {
     min-width: 40px;
     min-height: 28px;
   }
+}
+
+/* Match the control rhythm across independently mounted header actions. */
+.header .header-right {
+  gap: 6px;
+  justify-content: safe flex-end;
+}
+
+.header :is(.search-btn, .copy-link-btn, .fullscreen-btn, .export-btn, .unified-settings-btn, .tv-mode-btn, .intel-findings-badge, .pizzint-toggle, .region-select) {
+  box-sizing: border-box;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background-color: var(--bg);
+  color: var(--text);
+  font: 600 calc(12px * var(--wm-panel-effective-scale, 1))/1 var(--font-body);
+}
+
+.header :is(.search-btn, .copy-link-btn, .fullscreen-btn, .export-btn, .unified-settings-btn, .tv-mode-btn, .intel-findings-badge, .pizzint-toggle) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  margin: 0;
+  padding-inline: 8px;
+  flex-shrink: 0;
+}
+
+.header .search-btn {
+  background-color: var(--surface-hover);
+}
+
+.header :is(.search-btn, .copy-link-btn, .fullscreen-btn, .export-btn, .unified-settings-btn, .tv-mode-btn, .intel-findings-badge, .pizzint-toggle, .region-select):hover {
+  border-color: var(--text-dim);
+  background-color: var(--surface-hover);
+  color: var(--text);
+}
+
+.header :is(.variant-option, button, a):focus-visible,
+.dashboard-tabs-bar button:focus-visible,
+.dashboard-tablist button:focus-visible {
+  outline: 2px solid var(--bhumi-accent);
+  outline-offset: 1px;
+}
+
+.header .copy-link-btn.copied,
+.header .fullscreen-btn.active {
+  background-color: var(--bhumi-selected);
+  color: var(--bhumi-accent);
+}
+
+.header .search-btn kbd {
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font: 500 10px/1 var(--font-body);
+  white-space: nowrap;
+}
+
+.header .region-select {
+  padding-inline: 9px 24px;
+  background-position: right 8px center;
+}
+
+@media (max-width: 1350px) {
+  .header .copy-link-btn:not(.copied) .toolbar-label,
+  .header .search-btn kbd {
+    display: none;
+  }
+}
+
+@media (max-width: 1050px) {
+  .header .search-btn .toolbar-label {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    min-height: 48px;
+  }
+
+  .dashboard-tabs-bar :is(.dashboard-tab-add, .dashboard-tab-options, .dashboard-tab-team, .dashboard-tab-focus) {
+    min-width: 36px;
+    min-height: 34px;
+  }
+}
+
+.map-controls :is(.map-btn, .map-control-btn) {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.map-controls :is(.map-btn, .map-control-btn):focus-visible {
+  outline: 2px solid var(--bhumi-accent);
+  outline-offset: 1px;
 }

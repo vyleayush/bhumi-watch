@@ -11,7 +11,8 @@ loadEnvFile(import.meta.url);
 
 const CANONICAL_KEY = 'market:commodities-bootstrap:v1';
 const GOLD_EXTENDED_KEY = 'market:gold-extended:v1';
-const CACHE_TTL = 1800;
+// Hobby refreshes once daily. Quote observation timestamps stay provider-owned.
+const CACHE_TTL = process.env.BHUMI_ENERGY_DAILY === '1' ? 3 * 86_400 : 1800;
 const YAHOO_DELAY_MS = 200;
 
 const GOLD_HISTORY_SYMBOLS = ['GC=F', 'SI=F'];

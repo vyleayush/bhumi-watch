@@ -1294,6 +1294,7 @@ const DYNAMIC_HOSTS = [
 ];
 
 const EXCLUDED_HOSTS = new Set([
+  'bhumiwatch.vercel.app',
   'creativecommons.org',
   'www.nationalarchives.gov.uk',
   'test',

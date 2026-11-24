@@ -1,3 +1,4 @@
+import { renderCrosshairIconSvg } from '@/utils/ui-icons';
 import { getRecentSignals, type CorrelationSignal } from '@/services/correlation';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/utils/safe-storage';
 import type { UnifiedAlert } from '@/services/cross-module-integration';
@@ -84,7 +85,7 @@ export class IntelligenceFindingsBadge {
     this.badge = document.createElement('button');
     this.badge.className = 'intel-findings-badge';
     this.badge.title = t('components.intelligenceFindings.badgeTitle');
-    setTrustedHtml(this.badge, trustedHtml('<span class="findings-icon">🎯</span><span class="findings-count">0</span>', "legacy direct innerHTML migration"));
+    setTrustedHtml(this.badge, trustedHtml(`<span class="findings-icon">${renderCrosshairIconSvg(16)}</span><span class="findings-count">0</span>`, 'Static findings icon'));
 
     this.dropdown = document.createElement('div');
     this.dropdown.className = 'intel-findings-dropdown';

@@ -22,10 +22,10 @@
     "unlock365": "Unlock 365 days with an API plan"
   },
   "shell": {
-    "documentTitle": "Bhumi-Watch | Paramount International School",
-    "metaDescription": "Bhumi-Watch is the real-time global intelligence dashboard from Paramount International School.",
+    "documentTitle": "Bhumi Watch | Paramount International School",
+    "metaDescription": "Bhumi Watch is the real-time global intelligence dashboard from Paramount International School.",
     "offlineTitle": "You're Offline",
-    "offlineMessage": "Bhumi-Watch requires an internet connection for real-time intelligence data.",
+    "offlineMessage": "Bhumi Watch requires an internet connection for real-time intelligence data.",
     "offlineRetry": "Retry"
   },
   "widgets": {
@@ -603,7 +603,7 @@
       "insights": "AI Commodity Insights"
     },
     "energy": {
-      "map": "Energy Atlas Map",
+      "map": "Energy Map",
       "liveNews": "Energy Headlines",
       "insights": "AI Energy Insights"
     },
@@ -868,7 +868,7 @@
       }
     },
     "settingsWindow": {
-      "shellTitle": "World Monitor Settings",
+      "shellTitle": "Bhumi Watch Settings",
       "shellSearchPlaceholder": "Search settings...",
       "shellCancel": "Cancel",
       "shellSaveClose": "Save & Close",

@@ -14,6 +14,14 @@ export function isSiteVariant(value: string | null | undefined): value is SiteVa
   return typeof value === 'string' && (SITE_VARIANTS as readonly string[]).includes(value);
 }
 
+export function isBhumiWatchHost(hostname: string): boolean {
+  return hostname === 'bhumiwatch.vercel.app';
+}
+
+export function bhumiWatchDashboardPath(variant: SiteVariant): string {
+  return variant === 'energy' ? '/dashboard' : `/dashboard?edition=${variant}`;
+}
+
 const buildVariant = (() => {
   try {
     return import.meta.env.VITE_VARIANT || 'full';
@@ -48,6 +56,10 @@ export const SITE_VARIANT: string = (() => {
   // without a global `location`, and this module must stay importable there.
   const h = window.location?.hostname;
   if (!h) return buildVariant;
+  if (isBhumiWatchHost(h)) {
+    const edition = new URLSearchParams(window.location.search).get('edition');
+    return isSiteVariant(edition) ? edition : 'energy';
+  }
   if (h.startsWith('tech.')) return 'tech';
   if (h.startsWith('finance.')) return 'finance';
   if (h.startsWith('happy.')) return 'happy';

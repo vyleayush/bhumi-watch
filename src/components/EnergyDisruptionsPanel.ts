@@ -257,7 +257,12 @@ export class EnergyDisruptionsPanel extends Panel {
     this.setSafeContent(unsafeRawHtml(`
       <div class="ed-wrap">
         <div class="ed-summary">${escapeHtml(summary)}</div>
-        <div class="ed-filters">${typeButtons}${ongoingBtn}</div>
+        <div class="ed-filters">
+          ${import.meta.env?.VITE_BHUMI_WATCH === '1' ? `<details class="ed-filter-menu">
+            <summary>${escapeHtml(EVENT_TYPE_FILTERS.find(filter => filter.key === this.activeTypeFilter)?.label ?? 'All events')}</summary>
+            <div class="ed-filter-options">${typeButtons}</div>
+          </details>` : typeButtons}${ongoingBtn}
+        </div>
         ${view.emptyByFocus ? focusedEmptyHtml(t('focus.filter.emptyEnergyDisruptions')) : `<div class="table-scroll" role="group" tabindex="0" aria-labelledby="${this.panelId}Title">
           <table class="wm-table ed-table" role="table">
             <thead role="rowgroup">

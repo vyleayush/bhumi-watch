@@ -4,7 +4,7 @@ Run the full World Monitor stack locally with Docker/Podman.
 
 ## Vercel Hobby dashboard
 
-The Hobby profile publishes the dashboard and its startup, session, RSS, news, markets, conflict, economics, climate, and earthquake APIs. The function limit leaves MCP, premium integrations, and other API-backed panels outside this profile. Seeded datasets need a Redis database and a worker or scheduled seed job to refresh them.
+The Hobby profile publishes the dashboard and its startup, session, RSS, news, markets, conflict, economics, energy supply-chain, and earthquake APIs. The function limit leaves MCP, premium integrations, and other API-backed panels outside this profile. Seeded datasets need a Redis database and a worker or scheduled seed job to refresh them.
 
 Use Node.js 24 and run the following from a committed checkout with dependencies installed.
 

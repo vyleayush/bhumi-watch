@@ -1,3 +1,4 @@
+import { renderUiIconSvg } from '@/utils/ui-icons';
 /**
  * Locked stand-in for the header export control (plan 2026-07-25-001, U5).
  *
@@ -82,7 +83,9 @@ export class ExportGateControl {
       type: 'button',
       className: 'export-btn',
       title: t('common.exportData'),
-    }, '⬇') as HTMLButtonElement;
+      'aria-label': t('common.exportData'),
+    }) as HTMLButtonElement;
+    setTrustedHtml(this.trigger, trustedHtml(renderUiIconSvg('download'), 'Static export icon'));
     this.trigger.setAttribute('aria-haspopup', 'dialog');
     this.trigger.setAttribute('aria-expanded', 'false');
 

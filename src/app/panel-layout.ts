@@ -1,3 +1,4 @@
+import { bhumiWatchDashboardPath, isBhumiWatchHost } from '@/config/variant';
 import { readChunkModule } from '@/bootstrap/chunk-reload';
 import { clearTelegramIntelCache } from '@/services/telegram-intel';
 import { subscribeRuntimeConfig } from '@/services/runtime-config';
@@ -36,7 +37,7 @@ import type { AviationCommandBar } from '@/components/AviationCommandBar';
 import { MobilePanelNav } from '@/components/MobilePanelNav';
 import { debounce, loadFromStorage, saveToStorage } from '@/utils';
 import { escapeHtml } from '@/utils/sanitize';
-import { renderExpandIconSvg } from '@/utils/ui-icons';
+import { renderCrosshairIconSvg, renderExpandIconSvg, renderUiIconSvg } from '@/utils/ui-icons';
 import { TIME_RANGE_MS } from '@/utils/time-range';
 import {
   DASHBOARD_EXTERNAL_SITE_LINKS,
@@ -1279,80 +1280,43 @@ export class PanelLayoutManager implements AppModule {
       `<a href="${href}" target="_blank" rel="noopener">${label}</a>`
     )).join('');
 
+    const variants = [
+      { key: 'full', icon: 'globe', label: t('header.world') },
+      { key: 'tech', icon: 'laptop', label: t('header.tech') },
+      { key: 'finance', icon: 'chart', label: t('header.finance') },
+      { key: 'commodity', icon: 'boxes', label: t('header.commodity') },
+      { key: 'energy', icon: 'bolt', label: t('header.energy') },
+      { key: 'happy', icon: 'sun', label: 'Good News' },
+    ] as const;
+    const searchShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
     markLcpDebug('wm:layout:render-start');
     document.documentElement.classList.add('wm-layout-hydrated');
     setTrustedHtml(this.ctx.container, trustedHtml(`
       <a href="#main" class="skip-link">Skip to main content</a>
-      <div id="proBannerSlot" class="pro-banner-slot" aria-live="polite"></div>
+      ${import.meta.env?.VITE_BHUMI_WATCH === '1' || isBhumiWatchHost(location.hostname) ? '' : '<div id="proBannerSlot" class="pro-banner-slot" aria-live="polite"></div>'}
       <div class="header" role="banner">
         <div class="header-left">
-          <div class="variant-switcher">${(() => {
+          <div class="brand-lockup">
+            <img class="brand-mark" src="/favico/bhumi-watch.svg" width="30" height="30" alt="">
+            <span class="brand-copy"><span class="logo">Bhumi Watch</span><span class="school-name">Paramount International School</span></span>
+          </div>
+          <nav class="variant-switcher" aria-label="Dashboard views">${(() => {
         const local = this.ctx.isDesktopApp || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
         const inIframe = window.self !== window.top;
-        const vHref = (v: keyof typeof VARIANT_SWITCHER_DASHBOARD_URLS) =>
-          variantSwitcherHref(v, SITE_VARIANT, local);
-        const vTarget = (v: string) => !local && SITE_VARIANT !== v && inIframe ? 'target="_blank" rel="noopener"' : '';
-        return `
-            <a href="${vHref('full')}"
-               class="variant-option ${SITE_VARIANT === 'full' ? 'active' : ''}"
-               data-variant="full"
-               ${vTarget('full')}
-               title="${t('header.world')}${SITE_VARIANT === 'full' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">🌍</span>
-              <span class="variant-label">${t('header.world')}</span>
-            </a>
-            <span class="variant-divider"></span>
-            <a href="${vHref('tech')}"
-               class="variant-option ${SITE_VARIANT === 'tech' ? 'active' : ''}"
-               data-variant="tech"
-               ${vTarget('tech')}
-               title="${t('header.tech')}${SITE_VARIANT === 'tech' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">💻</span>
-              <span class="variant-label">${t('header.tech')}</span>
-            </a>
-            <span class="variant-divider"></span>
-            <a href="${vHref('finance')}"
-               class="variant-option ${SITE_VARIANT === 'finance' ? 'active' : ''}"
-               data-variant="finance"
-               ${vTarget('finance')}
-               title="${t('header.finance')}${SITE_VARIANT === 'finance' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">📈</span>
-              <span class="variant-label">${t('header.finance')}</span>
-            </a>
-            <span class="variant-divider"></span>
-            <a href="${vHref('commodity')}"
-               class="variant-option ${SITE_VARIANT === 'commodity' ? 'active' : ''}"
-               data-variant="commodity"
-               ${vTarget('commodity')}
-               title="${t('header.commodity')}${SITE_VARIANT === 'commodity' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">⛏️</span>
-              <span class="variant-label">${t('header.commodity')}</span>
-            </a>
-            <span class="variant-divider"></span>
-            <a href="${vHref('energy')}"
-               class="variant-option ${SITE_VARIANT === 'energy' ? 'active' : ''}"
-               data-variant="energy"
-               ${vTarget('energy')}
-               title="${t('header.energy')}${SITE_VARIANT === 'energy' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">⚡</span>
-              <span class="variant-label">${t('header.energy')}</span>
-            </a>
-            <span class="variant-divider"></span>
-            <a href="${vHref('happy')}"
-               class="variant-option ${SITE_VARIANT === 'happy' ? 'active' : ''}"
-               data-variant="happy"
-               ${vTarget('happy')}
-               title="Good News${SITE_VARIANT === 'happy' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">☀️</span>
-              <span class="variant-label">Good News</span>
-            </a>`;
-      })()}</div>
-          <span class="brand-lockup"><span class="logo">Bhumi-Watch</span><span class="logo-mobile">Bhumi-Watch</span><span class="school-name">Paramount International School</span></span><span class="version">v${__APP_VERSION__}</span>${BETA_MODE ? '<span class="beta-badge">BETA</span>' : ''}
-          <a href="https://x.com/eliehabib" target="_blank" rel="noopener" class="credit-link">
-            <svg class="x-logo" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-            <span class="credit-text">@eliehabib</span>
-          </a>
-          <a href="https://github.com/koala73/worldmonitor" target="_blank" rel="noopener" class="github-link" title="${t('header.viewOnGitHub')}" aria-label="${t('header.viewOnGitHub')}">
+        return variants.map(({ key, icon, label }) => {
+          const active = SITE_VARIANT === key;
+          const href = isBhumiWatchHost(location.hostname)
+            ? bhumiWatchDashboardPath(key)
+            : variantSwitcherHref(key, SITE_VARIANT, local);
+          const target = !local && !active && inIframe ? 'target="_blank" rel="noopener"' : '';
+          return `<a href="${href}" class="variant-option ${active ? 'active' : ''}" data-variant="${key}"
+            title="${label}" aria-label="${label}" ${active ? 'aria-current="page"' : ''} ${target}>
+            <span class="variant-icon">${renderUiIconSvg(icon)}</span><span class="variant-label">${label}</span>
+          </a>`;
+        }).join('');
+      })()}</nav>
+          <span class="version">v${__APP_VERSION__}</span>${BETA_MODE ? '<span class="beta-badge">BETA</span>' : ''}
+          <a href="https://github.com/vyleayush/bhumi-watch" target="_blank" rel="noopener" class="github-link" title="${t('header.viewOnGitHub')}" aria-label="${t('header.viewOnGitHub')}">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           </a>
           <button class="mobile-settings-btn" id="mobileSettingsBtn" title="${t('header.settings')}" aria-label="${t('header.settings')}">
@@ -1380,9 +1344,9 @@ export class PanelLayoutManager implements AppModule {
           </button>
         </div>
         <div class="header-right">
-          <button class="search-btn" id="searchBtn"><kbd>⌘K</kbd> ${t('header.search')}</button>
-          ${this.ctx.isDesktopApp ? '' : `<button class="copy-link-btn" id="copyLinkBtn">${t('header.copyLink')}</button>`}
-          ${this.ctx.isDesktopApp ? '' : `<button class="copy-link-btn embed-link-btn" id="embedLinkBtn">${t('header.embed')}</button>`}
+          <button class="search-btn" id="searchBtn" aria-label="${t('header.search')}">${renderUiIconSvg('search')}<span class="toolbar-label">${t('header.search')}</span><kbd>${searchShortcut}</kbd></button>
+          ${this.ctx.isDesktopApp ? '' : `<button class="copy-link-btn" id="copyLinkBtn" title="${t('header.copyLink')}">${renderUiIconSvg('link')}<span class="toolbar-label" aria-live="polite">${t('header.copyLink')}</span></button>`}
+          ${this.ctx.isDesktopApp ? '' : `<button class="copy-link-btn embed-link-btn" id="embedLinkBtn" title="${t('header.embed')}">${renderUiIconSvg('code')}<span class="toolbar-label">${t('header.embed')}</span></button>`}
           ${this.ctx.isDesktopApp ? '' : `<button class="fullscreen-btn" id="fullscreenBtn" title="${t('header.fullscreen')}" aria-label="${t('header.fullscreen')}">${renderExpandIconSvg(14)}</button>`}
           ${SITE_VARIANT === 'happy' ? `<button class="tv-mode-btn" id="tvModeBtn" title="TV Mode (Shift+T)" aria-label="TV Mode"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></button>` : ''}
           <span id="unifiedSettingsMount"></span>
@@ -1392,62 +1356,51 @@ export class PanelLayoutManager implements AppModule {
       <div class="mobile-menu-overlay" id="mobileMenuOverlay"></div>
       <nav class="mobile-menu" id="mobileMenu" aria-label="Menu">
         <div class="mobile-menu-header">
-          <span class="mobile-menu-title" aria-label="Bhumi-Watch — Paramount International School"><span>Bhumi-Watch</span><span class="mobile-menu-subtitle">Paramount International School</span></span>
+          <span class="mobile-menu-title" aria-label="Bhumi Watch — Paramount International School"><span>Bhumi Watch</span><span class="mobile-menu-subtitle">Paramount International School</span></span>
           <button class="mobile-menu-close" id="mobileMenuClose" aria-label="Close menu">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         <div class="mobile-menu-divider"></div>
         <div class="mobile-menu-account" aria-label="Account">
-          <span class="mobile-menu-account-icon" aria-hidden="true">◯</span>
+          <span class="mobile-menu-account-icon">${renderUiIconSvg('user', 18)}</span>
           <div id="mobileAuthWidgetMount"></div>
           <button class="mobile-auth-fallback" id="mobileAuthFallback" type="button">Sign In</button>
         </div>
         <div class="mobile-menu-divider"></div>
         ${(() => {
-        const variants = [
-          { key: 'full', icon: '🌍', label: t('header.world') },
-          { key: 'tech', icon: '💻', label: t('header.tech') },
-          { key: 'finance', icon: '📈', label: t('header.finance') },
-          { key: 'commodity', icon: '⛏️', label: t('header.commodity') },
-          { key: 'energy', icon: '⚡', label: t('header.energy') },
-          { key: 'happy', icon: '☀️', label: 'Good News' },
-        ];
         return variants.map(v =>
           `<button class="mobile-menu-item mobile-menu-variant ${v.key === SITE_VARIANT ? 'active' : ''}" data-variant="${v.key}">
-            <span class="mobile-menu-item-icon">${v.icon}</span>
+            <span class="mobile-menu-item-icon">${renderUiIconSvg(v.icon)}</span>
             <span class="mobile-menu-item-label">${v.label}</span>
-            ${v.key === SITE_VARIANT ? '<span class="mobile-menu-check">✓</span>' : ''}
+            ${v.key === SITE_VARIANT ? `<span class="mobile-menu-check">${renderUiIconSvg('check')}</span>` : ''}
           </button>`
         ).join('');
       })()}
         <div class="mobile-menu-divider"></div>
         <button class="mobile-menu-item" id="mobileMenuRegion">
-          <span class="mobile-menu-item-icon">🌐</span>
+          <span class="mobile-menu-item-icon">${renderUiIconSvg('globe')}</span>
           <span class="mobile-menu-item-label">${t('components.deckgl.views.global')}</span>
-          <span class="mobile-menu-chevron">▸</span>
+          <span class="mobile-menu-chevron">${renderUiIconSvg('chevronRight', 14)}</span>
         </button>
         <button class="mobile-menu-item" id="mobileMenuMission">
-          <span class="mobile-menu-item-icon">◎</span>
+          <span class="mobile-menu-item-icon">${renderCrosshairIconSvg(16)}</span>
           <span class="mobile-menu-item-label">Mission</span>
-          <span class="mobile-menu-chevron">▸</span>
+          <span class="mobile-menu-chevron">${renderUiIconSvg('chevronRight', 14)}</span>
         </button>
         <div class="mobile-menu-divider"></div>
         <button class="mobile-menu-item" id="mobileMenuSettings">
-          <span class="mobile-menu-item-icon">⚙️</span>
+          <span class="mobile-menu-item-icon">${renderUiIconSvg('settings')}</span>
           <span class="mobile-menu-item-label">${t('header.settings')}</span>
         </button>
         <button class="mobile-menu-item" id="mobileMenuTheme">
-          <span class="mobile-menu-item-icon">${getCurrentTheme() === 'dark' ? '☀️' : '🌙'}</span>
+          <span class="mobile-menu-item-icon">${renderUiIconSvg(getCurrentTheme() === 'dark' ? 'sun' : 'moon')}</span>
           <span class="mobile-menu-item-label">${getCurrentTheme() === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
-        <a class="mobile-menu-item" href="https://x.com/eliehabib" target="_blank" rel="noopener">
-          <span class="mobile-menu-item-icon"><svg class="x-logo" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></span>
-          <span class="mobile-menu-item-label">@eliehabib</span>
-        </a>
         <div class="mobile-menu-divider"></div>
         <div class="mobile-menu-footer-links">
           ${referenceLinksHtml}
+          <a href="https://github.com/vyleayush/bhumi-watch" target="_blank" rel="noopener">Bhumi Watch source</a>
           <a href="${pricingHref}" target="_blank" rel="noopener">Pricing</a>
           ${externalSiteLinksHtml}
         </div>
@@ -1512,25 +1465,25 @@ export class PanelLayoutManager implements AppModule {
       </main>
       <nav class="mobile-tab-bar" id="mobileTabBar" aria-label="Primary">
         <button class="mobile-tab active" type="button" data-mobile-tab="today" aria-current="page">
-          <span class="mobile-tab-icon" aria-hidden="true">◉</span><span>Today</span>
+          <span class="mobile-tab-icon">${renderUiIconSvg('dashboard', 20)}</span><span>Today</span>
         </button>
         <button class="mobile-tab" type="button" data-mobile-tab="map">
-          <span class="mobile-tab-icon" aria-hidden="true">◎</span><span>Map</span>
+          <span class="mobile-tab-icon">${renderUiIconSvg('globe', 20)}</span><span>Map</span>
         </button>
         <button class="mobile-tab" type="button" data-mobile-tab="search">
-          <span class="mobile-tab-icon" aria-hidden="true">⌕</span><span>Search</span>
+          <span class="mobile-tab-icon">${renderUiIconSvg('search', 20)}</span><span>Search</span>
         </button>
         <button class="mobile-tab" type="button" data-mobile-tab="alerts">
-          <span class="mobile-tab-icon" aria-hidden="true">△</span><span>Alerts</span>
+          <span class="mobile-tab-icon">${renderUiIconSvg('bell', 20)}</span><span>Alerts</span>
         </button>
         <button class="mobile-tab" type="button" data-mobile-tab="more">
-          <span class="mobile-tab-icon" aria-hidden="true">•••</span><span>More</span>
+          <span class="mobile-tab-icon">${renderUiIconSvg('more', 20)}</span><span>More</span>
         </button>
       </nav>
-      <footer class="site-footer" aria-label="Bhumi-Watch status">
+      <footer class="site-footer" aria-label="Bhumi Watch status">
         <span class="site-footer-meta">
           <span class="site-footer-version">v${__APP_VERSION__}</span>
-          <span class="site-footer-copy">&copy; ${new Date().getFullYear()} Bhumi-Watch · Paramount International School</span>
+          <span class="site-footer-copy">&copy; ${new Date().getFullYear()} Bhumi Watch · Paramount International School</span>
           ${this.ctx.isDesktopApp ? '' : `<span id="footerDownloadMount"></span>`}
         </span>
       </footer>
@@ -1538,13 +1491,13 @@ export class PanelLayoutManager implements AppModule {
     // Move the same links so navigation, analytics and focus targets stay shared.
     this.variantPlacementCleanup?.();
     const switcher = this.ctx.container.querySelector('.variant-switcher');
-    const headerLeft = this.ctx.container.querySelector('.header-left');
+    const brand = this.ctx.container.querySelector('.brand-lockup');
     const tabletMount = this.ctx.container.querySelector('.tablet-variant-mount');
     const tabletWidth = window.matchMedia('(min-width: 768px) and (max-width: 980px)');
     const placeSwitcher = () => {
-      if (!switcher || !headerLeft || !tabletMount) return;
+      if (!switcher || !brand || !tabletMount) return;
       if (tabletWidth.matches) tabletMount.append(switcher);
-      else headerLeft.prepend(switcher);
+      else brand.after(switcher);
     };
     placeSwitcher();
     tabletWidth.addEventListener('change', placeSwitcher);
@@ -2862,9 +2815,10 @@ export class PanelLayoutManager implements AppModule {
 
   private updateMobileMapCollapseBtn(isCollapsed: boolean): void {
     if (!this.mobileMapCollapseBtn) return;
-    this.mobileMapCollapseBtn.textContent = isCollapsed
-      ? `▶ ${t('components.map.showMap')}`
-      : `▼ ${t('components.map.hideMap')}`;
+    const icon = renderUiIconSvg(isCollapsed ? 'chevronRight' : 'chevronDown', 14);
+    setTrustedHtml(this.mobileMapCollapseBtn, trustedHtml(icon, 'Static mobile map toggle icon'));
+    this.mobileMapCollapseBtn.append(t(isCollapsed ? 'components.map.showMap' : 'components.map.hideMap'));
+    this.mobileMapCollapseBtn.setAttribute('aria-expanded', String(!isCollapsed));
   }
 
   private setupMobileMapToggle(): void {
@@ -2879,6 +2833,7 @@ export class PanelLayoutManager implements AppModule {
     if (collapsed) mapSection.classList.add('collapsed');
 
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'map-collapse-btn';
     headerLeft.after(btn);
     this.mobileMapCollapseBtn = btn;
@@ -4088,7 +4043,8 @@ export class PanelLayoutManager implements AppModule {
     } else {
       allOrder = [...defaultOrder];
 
-      if (SITE_VARIANT !== 'happy') {
+      const prioritizeEnergy = SITE_VARIANT === 'energy' && import.meta.env?.VITE_BHUMI_WATCH === '1';
+      if (SITE_VARIANT !== 'happy' && !prioritizeEnergy) {
         const liveNewsIdx = allOrder.indexOf('live-news');
         if (liveNewsIdx > 0) {
           allOrder.splice(liveNewsIdx, 1);

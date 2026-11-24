@@ -1,0 +1,127 @@
+/* Bhumi Watch dashboard surfaces */
+html[data-bhumi-build="1"] {
+  --dashboard-grid-gap: clamp(10px, 1vw, 16px);
+  --bw-line: color-mix(in srgb, var(--text) 13%, transparent);
+  --bw-muted: color-mix(in srgb, var(--text) 72%, var(--bg));
+}
+html[data-bhumi-build="1"][data-variant="energy"] {
+  --dashboard-panel-row-min: 232px;
+}
+@media (max-width: 600px) {
+  html[data-bhumi-build="1"][data-variant="energy"] {
+    --dashboard-panel-row-min: 268px;
+  }
+}
+html[data-bhumi-build="1"] .panels-grid {
+  gap: var(--dashboard-grid-gap);
+}
+html[data-bhumi-build="1"] #app {
+  scrollbar-color: var(--bw-muted) transparent;
+  scrollbar-width: thin;
+}
+html[data-bhumi-build="1"] .panels-grid > .panel {
+  border: 1px solid var(--bw-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+html[data-bhumi-build="1"] .panels-grid > .panel > .panel-header:not(.panel-header-error) {
+  background: transparent;
+  border-color: var(--bw-line);
+  padding: 10px 14px;
+}
+html[data-bhumi-build="1"] .panels-grid > .panel > .panel-header .panel-title {
+  font-family: var(--font-body);
+  font-size: calc(13px * var(--wm-panel-effective-scale, 1));
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+html[data-bhumi-build="1"] .panel-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bw-line) transparent;
+}
+html[data-bhumi-build="1"] .panel-content:hover,
+html[data-bhumi-build="1"] .panel-content:focus-within {
+  scrollbar-color: var(--bw-muted) transparent;
+}
+@media (hover: hover) {
+  html[data-bhumi-build="1"] .panel:not(:hover):not(:focus-within) > :is(.panel-resize-handle, .panel-col-resize-handle):not(.active) {
+    opacity: 0;
+  }
+}
+html[data-bhumi-build="1"] [data-panel="energy-risk-overview"] {
+  container-type: inline-size;
+}
+html[data-bhumi-build="1"] .panel .ero-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+@container (min-width: 400px) {
+  html[data-bhumi-build="1"] .panel .ero-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+html[data-bhumi-build="1"] .panel .ero-grid .ero-tile {
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--bw-line);
+  border-radius: 0;
+  padding: 8px 10px;
+  min-height: 0;
+}
+html[data-bhumi-build="1"] .panel .ero-tile .ero-tile__label {
+  color: var(--bw-muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+html[data-bhumi-build="1"] .ero-tile__value {
+  font-variant-numeric: tabular-nums;
+}
+html[data-bhumi-build="1"] :is(.pp-wrap, .sf-wrap, .fs-wrap, .ed-wrap) .wm-table {
+  font-variant-numeric: tabular-nums;
+}
+html[data-bhumi-build="1"] :is(.pp-sub, .sf-sub, .fs-sub, .ed-sub, .ed-summary) {
+  color: var(--bw-muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+html[data-bhumi-build="1"] :is(.pp-badge, .sf-badge, .fs-badge, .ed-badge) {
+  background: var(--overlay-subtle) !important;
+  border: 1px solid var(--bw-line);
+  border-radius: 5px;
+  color: var(--text);
+  letter-spacing: 0;
+  text-transform: none;
+}
+html[data-bhumi-build="1"] .ed-filters {
+  align-items: flex-start;
+  gap: 8px;
+}
+html[data-bhumi-build="1"] .ed-filter-menu > summary,
+html[data-bhumi-build="1"] .ed-filters > .ed-chip {
+  border: 1px solid var(--bw-line);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  min-height: 30px;
+  padding: 6px 8px;
+}
+html[data-bhumi-build="1"] .ed-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 8px 2px;
+}
+html[data-bhumi-build="1"] .ed-filter-options .ed-chip {
+  min-height: 28px;
+}
+html[data-bhumi-build="1"] .ed-chip-active {
+  background: var(--bhumi-selected);
+  border-color: var(--bhumi-accent);
+  color: var(--bhumi-accent);
+}
+html[data-bhumi-build="1"] .ed-filters :focus-visible {
+  outline: 2px solid var(--bhumi-accent);
+  outline-offset: 2px;
+}

@@ -69,6 +69,33 @@ const EIA_COMMODITIES = [
   { commodity: 'brent', name: 'Brent Crude Oil', unit: '$/barrel', apiPath: '/v2/petroleum/pri/spt/data/', facet: 'RBRTE' },
 ];
 
+async function fetchEiaWeeklyRows(apiPath, params, series, section = 'pet') {
+  if (params.get('api_key')) {
+    const data = await eiaFetchJson(`https://api.eia.gov/v2/${apiPath}/data/?${params}`, series);
+    return data.response?.data;
+  }
+
+  // EIA publishes the same weekly series in its public historical workbooks.
+  const response = await fetch(`https://www.eia.gov/dnav/${section}/hist_xls/${series}w.xls`, {
+    headers: { 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`EIA ${series} workbook: HTTP ${response.status}`);
+
+  const { default: xlsx } = await import('@e965/xlsx');
+  const workbook = xlsx.read(await response.arrayBuffer());
+  const rows = xlsx.utils.sheet_to_json(workbook.Sheets['Data 1'], { header: 1 });
+  if (rows[1]?.[1] !== series) throw new Error(`EIA ${series}: unexpected workbook series`);
+
+  return rows.slice(3).flatMap(([serial, value]) => {
+    if (typeof serial !== 'number' || !Number.isFinite(value)) return [];
+    const date = xlsx.SSF.parse_date_code(serial, { date1904: workbook.Workbook?.WBProps?.date1904 });
+    if (!date) return [];
+    const period = new Date(Date.UTC(date.y, date.m - 1, date.d)).toISOString().slice(0, 10);
+    return [{ period, value }];
+  }).sort((a, b) => b.period.localeCompare(a.period)).slice(0, 9);
+}
+
 async function fetchEnergyPrices() {
   const apiKey = process.env.EIA_API_KEY;
   if (!apiKey) throw new Error('Missing EIA_API_KEY');
@@ -399,8 +426,7 @@ async function fetchMacroSignals(proxyAuth = null) {
 // ─── EIA Commercial Crude Oil Inventories (WCESTUS1) ───
 
 export async function fetchCrudeInventories() {
-  const apiKey = process.env.EIA_API_KEY;
-  if (!apiKey) throw new Error('Missing EIA_API_KEY');
+  const apiKey = process.env.EIA_API_KEY ?? '';
 
   const params = new URLSearchParams({
     api_key: apiKey,
@@ -411,8 +437,7 @@ export async function fetchCrudeInventories() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for weeklyChangeMb
   });
-  const data = await eiaFetchJson(`https://api.eia.gov/v2/petroleum/stoc/wstk/data/?${params}`, 'WCESTUS1');
-  const rows = data.response?.data;
+  const rows = await fetchEiaWeeklyRows('petroleum/stoc/wstk', params, 'WCESTUS1');
   if (!rows || rows.length === 0) throw new Error('EIA WCESTUS1: no data rows');
 
   // rows are sorted newest-first; compute weeklyChangeMb for each week vs. next (older)
@@ -448,8 +473,7 @@ export async function fetchCrudeInventories() {
 // ─── EIA Natural Gas Storage (NW2_EPG0_SWO_R48_BCF) ───
 
 async function fetchNatGasStorage() {
-  const apiKey = process.env.EIA_API_KEY;
-  if (!apiKey) throw new Error('Missing EIA_API_KEY');
+  const apiKey = process.env.EIA_API_KEY ?? '';
 
   const params = new URLSearchParams({
     api_key: apiKey,
@@ -460,8 +484,7 @@ async function fetchNatGasStorage() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for weeklyChangeBcf
   });
-  const data = await eiaFetchJson(`https://api.eia.gov/v2/natural-gas/stor/wkly/data/?${params}`, 'NW2_EPG0_SWO_R48_BCF');
-  const rows = data.response?.data;
+  const rows = await fetchEiaWeeklyRows('natural-gas/stor/wkly', params, 'NW2_EPG0_SWO_R48_BCF', 'ng');
   if (!rows || rows.length === 0) throw new Error('EIA NW2_EPG0_SWO_R48_BCF: no data rows');
 
   // rows are sorted newest-first; compute weeklyChangeBcf for each week vs. next (older)
@@ -509,8 +532,7 @@ export function parseEiaSprRow(row) {
 }
 
 export async function fetchSprLevels() {
-  const apiKey = process.env.EIA_API_KEY;
-  if (!apiKey) throw new Error('Missing EIA_API_KEY');
+  const apiKey = process.env.EIA_API_KEY ?? '';
 
   const params = new URLSearchParams({
     api_key: apiKey,
@@ -521,8 +543,7 @@ export async function fetchSprLevels() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so we can compute 4-week change
   });
-  const data = await eiaFetchJson(`https://api.eia.gov/v2/petroleum/stoc/wstk/data/?${params}`, 'WCSSTUS1');
-  const rows = data.response?.data;
+  const rows = await fetchEiaWeeklyRows('petroleum/stoc/wstk', params, 'WCSSTUS1');
   if (!rows || rows.length === 0) throw new Error('EIA WCSSTUS1: no data rows');
 
   // rows are sorted newest-first
@@ -574,8 +595,7 @@ export function parseEiaRefineryRow(row) {
 }
 
 async function fetchRefineryInputs() {
-  const apiKey = process.env.EIA_API_KEY;
-  if (!apiKey) throw new Error('Missing EIA_API_KEY');
+  const apiKey = process.env.EIA_API_KEY ?? '';
 
   const params = new URLSearchParams({
     api_key: apiKey,
@@ -587,8 +607,7 @@ async function fetchRefineryInputs() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for WoW change
   });
-  const data = await eiaFetchJson(`https://api.eia.gov/v2/petroleum/pnp/wiup/data/?${params}`, 'WCRRIUS2');
-  const rows = data.response?.data;
+  const rows = await fetchEiaWeeklyRows('petroleum/pnp/wiup', params, 'WCRRIUS2');
   if (!rows || rows.length === 0) throw new Error('EIA WCRRIUS2: no data rows');
 
   // rows are sorted newest-first
@@ -657,6 +676,12 @@ async function fetchAll() {
 
   if (ms && !ms.unavailable && ms.totalCount > 0) await writeExtraKeyWithMeta(KEYS.macroSignals, ms, MACRO_TTL, ms.totalCount ?? 0);
 
+  await writeInventoryKeys(ci, ng, spr, ru);
+
+  return ep || { prices: [] };
+}
+
+async function writeInventoryKeys(ci, ng, spr, ru) {
   const isValidWeek = (w) => typeof w.period === 'string' && typeof w.stocksMb === 'number' && Number.isFinite(w.stocksMb);
   if (ci?.weeks?.length >= CRUDE_MIN_WEEKS && ci.weeks.every(isValidWeek)) {
     await writeExtraKeyWithMeta(KEYS.crudeInventories, ci, CRUDE_INVENTORIES_TTL, ci.weeks.length);
@@ -684,8 +709,14 @@ async function fetchAll() {
   } else if (ru) {
     console.warn(`  RefineryInputs: skipped write — ${ru.weeks?.length ?? 0} weeks or schema invalid`);
   }
+}
 
-  return ep || { prices: [] };
+async function fetchInventoriesOnly() {
+  const [crude, gas, spr, refinery] = await Promise.all([
+    fetchCrudeInventories(), fetchNatGasStorage(), fetchSprLevels(), fetchRefineryInputs(),
+  ]);
+  await writeInventoryKeys(null, gas, spr, refinery);
+  return crude;
 }
 
 function validate(data) {
@@ -697,14 +728,25 @@ export function declareRecords(data) {
 }
 
 if (process.argv[1]?.endsWith('seed-economy.mjs')) {
-  runSeed('economic', 'energy-prices', KEYS.energyPrices, fetchAll, {
-    validateFn: validate,
-    ttlSeconds: ENERGY_TTL,
-    sourceVersion: 'eia-fred-macro',
-    declareRecords,
-    schemaVersion: 1,
-    maxStaleMin: 150,
-  }).catch((err) => {
+  const inventoriesOnly = process.argv.includes('--inventories-only');
+  const seed = inventoriesOnly
+    ? runSeed('economic', 'crude-inventories', KEYS.crudeInventories, fetchInventoriesOnly, {
+      validateFn: (data) => data?.weeks?.length >= CRUDE_MIN_WEEKS,
+      ttlSeconds: CRUDE_INVENTORIES_TTL,
+      sourceVersion: 'eia-weekly',
+      declareRecords: (data) => data?.weeks?.length ?? 0,
+      schemaVersion: 1,
+      maxStaleMin: 10_080,
+    })
+    : runSeed('economic', 'energy-prices', KEYS.energyPrices, fetchAll, {
+      validateFn: validate,
+      ttlSeconds: ENERGY_TTL,
+      sourceVersion: 'eia-fred-macro',
+      declareRecords,
+      schemaVersion: 1,
+      maxStaleMin: 150,
+    });
+  seed.catch((err) => {
     const _cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : ''; console.error('FATAL:', (err.message || err) + _cause);
     process.exit(1);
   });
