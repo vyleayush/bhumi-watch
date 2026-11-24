@@ -1,3 +1,4 @@
+import { renderCrosshairIconSvg, renderUiIconSvg } from '@/utils/ui-icons';
 import { DASHBOARD_TAB_NAME_MAX_LENGTH, type PanelTab, type TabsState } from '@/services/tab-store';
 import { t } from '@/services/i18n';
 import { PanelGateReason } from '@/services/panel-gating';
@@ -140,7 +141,7 @@ export class PanelTabBar {
     this.optionsBtn = document.createElement('button');
     this.optionsBtn.type = 'button';
     this.optionsBtn.className = 'dashboard-tab-options';
-    this.optionsBtn.textContent = '▾';
+    setTrustedHtml(this.optionsBtn, trustedHtml(renderUiIconSvg('chevronDown', 14), 'Static dashboard options icon'));
     this.optionsBtn.title = t('dashboardTabs.newTabOptions');
     this.optionsBtn.setAttribute('aria-label', t('dashboardTabs.newTabOptions'));
     this.optionsBtn.setAttribute('aria-expanded', 'false');
@@ -158,7 +159,8 @@ export class PanelTabBar {
     this.focusBtn = document.createElement('button');
     this.focusBtn.type = 'button';
     this.focusBtn.className = 'dashboard-tab-focus';
-    this.focusBtn.textContent = t('focus.tabButton');
+    setTrustedHtml(this.focusBtn, trustedHtml(renderCrosshairIconSvg(14), 'Static dashboard focus icon'));
+    this.focusBtn.append(t('focus.tabButton'));
     this.focusBtn.addEventListener('click', () => {
       if (this.noticeKind === 'focus') {
         this.closeNotice();
@@ -498,7 +500,9 @@ export class PanelTabBar {
     const addBtn = document.createElement('button');
     addBtn.className = 'dashboard-tab-add';
     addBtn.title = t(this.callbacks.hasNewTabPanels() ? 'dashboardTabs.addTabTitleSaved' : 'dashboardTabs.addTabTitle');
-    addBtn.textContent = '+';
+    addBtn.type = 'button';
+    addBtn.setAttribute('aria-label', addBtn.title);
+    setTrustedHtml(addBtn, trustedHtml(renderUiIconSvg('plus', 15), 'Static add dashboard icon'));
     // The click always reaches the manager: `addTab` is the single enforcement
     // point for the cap, so the button never decides on its own.
     addBtn.addEventListener('click', () => this.callbacks.onAdd());
@@ -557,7 +561,7 @@ export class PanelTabBar {
       close.className = 'dashboard-tab-close';
       close.setAttribute('aria-label', t('dashboardTabs.deleteTabAria', { name: tab.name }));
       close.title = t('dashboardTabs.deleteTab');
-      close.textContent = '×';
+      setTrustedHtml(close, trustedHtml(renderUiIconSvg('close', 13), 'Static close dashboard icon'));
       close.addEventListener('click', (e) => {
         e.stopPropagation();
         this.callbacks.onDelete(tab.id);

@@ -1,3 +1,4 @@
+import { renderUiIconSvg } from '@/utils/ui-icons';
 import type { NewsItem, ClusteredEvent, MarketData, CyberThreat, Monitor } from '@/types';
 import type { PredictionMarket } from '@/services/prediction';
 import type { IntelligenceCache } from '@/app/app-context';
@@ -773,7 +774,7 @@ export class ExportPanel {
     this.element = document.createElement('div');
     this.element.className = 'export-panel-container';
     setTrustedHtml(this.element, trustedHtml(`
-      <button class="export-btn" title="${t('common.exportData')}">⬇</button>
+      <button class="export-btn" title="${t('common.exportData')}" aria-label="${t('common.exportData')}">${renderUiIconSvg('download')}</button>
       <div class="export-menu hidden">
         <button class="export-option" data-format="csv">${t('common.exportCsv')}</button>
         <button class="export-option" data-format="json">${t('common.exportJson')}</button>

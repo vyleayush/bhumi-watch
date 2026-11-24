@@ -67,7 +67,7 @@ export async function initLiveChannelsWindow(containerEl?: HTMLElement): Promise
   }
 
   if (!containerEl) {
-    document.title = `${t('components.liveNews.manage') ?? 'Channel management'} - Bhumi-Watch`;
+    document.title = `${t('components.liveNews.manage') ?? 'Channel management'} - Bhumi Watch`;
   }
 
   channels = loadChannelsFromStorage();

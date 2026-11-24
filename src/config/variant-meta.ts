@@ -13,12 +13,12 @@ export interface VariantMeta {
 
 export const VARIANT_META: { full: VariantMeta; [k: string]: VariantMeta } = {
   full: {
-    title: 'Bhumi-Watch | Paramount International School',
-    description: 'Bhumi-Watch is the real-time global intelligence dashboard from Paramount International School.',
+    title: 'Bhumi Watch | Paramount International School',
+    description: 'Bhumi Watch is the real-time global intelligence dashboard from Paramount International School.',
     keywords: 'AI intelligence, AI-powered dashboard, global intelligence, geopolitical dashboard, world news, market data, military bases, nuclear facilities, undersea cables, conflict zones, real-time monitoring, situation awareness, OSINT, flight tracking, AIS ships, earthquake monitor, protest tracker, power outages, oil prices, government spending, polymarket predictions',
     url: 'https://www.worldmonitor.app/dashboard',
-    siteName: 'Bhumi-Watch',
-    shortName: 'Bhumi-Watch',
+    siteName: 'Bhumi Watch',
+    shortName: 'Bhumi Watch',
     subject: 'AI-Powered Global Intelligence and Situation Awareness',
     classification: 'AI Intelligence Dashboard, OSINT Tool, News Aggregator',
     categories: ['news', 'productivity'],

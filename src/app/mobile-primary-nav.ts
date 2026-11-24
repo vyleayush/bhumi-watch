@@ -1,3 +1,5 @@
+import { renderUiIconSvg } from '@/utils/ui-icons';
+import { setTrustedHtml, trustedHtml } from '@/utils/dom-utils';
 import type { AppContext } from '@/app/app-context';
 import type { MapView } from '@/components/MapContainer';
 import type { AuthLauncher } from '@/components/AuthLauncher';
@@ -81,7 +83,7 @@ export class MobilePrimaryNav {
     const isDark = getCurrentTheme() === 'dark';
     const icon = button.querySelector('.mobile-menu-item-icon');
     const label = button.querySelector('.mobile-menu-item-label');
-    if (icon) icon.textContent = isDark ? '☀️' : '🌙';
+    if (icon) setTrustedHtml(icon, trustedHtml(renderUiIconSvg(isDark ? 'sun' : 'moon'), 'Static theme icon'));
     if (label) label.textContent = isDark ? 'Light Mode' : 'Dark Mode';
   }
 

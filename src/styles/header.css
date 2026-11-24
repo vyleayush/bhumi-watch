@@ -27,18 +27,13 @@ html.wm-pro-banner-reserved .pro-banner-slot {
   flex: 1 1 auto;
   justify-content: flex-end;
   min-width: 0;
-  padding-left: calc(var(--header-findings-slot-width) + 12px);
   position: relative;
 }
 
 .header-right > .intel-findings-badge {
   box-sizing: border-box;
   justify-content: center;
-  left: 0;
-  position: absolute;
-  top: 50%;
-  translate: 0 -50%;
-  width: var(--header-findings-slot-width);
+  flex: 0 0 var(--header-findings-slot-width);
 }
 
 #missionPresetMount,

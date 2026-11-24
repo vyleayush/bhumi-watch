@@ -2080,12 +2080,13 @@ export class EventHandlerManager implements AppModule {
   }
 
   private setCopyLinkFeedback(button: HTMLElement | null, message: string): void {
-    if (!button) return;
-    const originalText = button.textContent ?? '';
-    button.textContent = message;
+    const label = button?.querySelector('.toolbar-label');
+    if (!button || !label) return;
+    const originalText = label.textContent ?? '';
+    label.textContent = message;
     button.classList.add('copied');
     window.setTimeout(() => {
-      button.textContent = originalText;
+      label.textContent = originalText;
       button.classList.remove('copied');
     }, 1500);
   }
